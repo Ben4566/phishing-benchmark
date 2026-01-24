@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from xgboost import XGBClassifier
+import xgboost as xgb  # <--- Dieser Import ist entscheidend!
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
 
@@ -80,16 +80,31 @@ class GPULogisticRegression(nn.Module):
             probs = outputs.cpu().numpy().flatten()
         return np.vstack(((1 - probs), probs)).T
 
-# --- 3. Wrapper Functions ---
-def get_xgboost_model(use_gpu=True):
-    device_arg = "cuda" if use_gpu else "cpu"
-    tree_method = "hist" if use_gpu else "auto"
-    return XGBClassifier(
-        n_estimators=5000, max_depth=6, learning_rate=0.01,
-        objective='binary:logistic', early_stopping_rounds=50,
-        tree_method=tree_method, device=device_arg
-    )
+# --- 3. XGBoost ---
+def get_xgboost_model(use_cuda, n_estimators=100, learning_rate=0.1):
+    # Mapping der Parameter
+    params = {
+        "n_estimators": n_estimators,  # Das entspricht deinen 'epochs'
+        "learning_rate": learning_rate, # Das ist deine 'lr'
+        "max_depth": 6,                
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
+    }
 
+    if use_cuda:
+        try:
+            # Versuch GPU zu nutzen
+            params["tree_method"] = "hist" 
+            params["device"] = "cuda"
+        except:
+            print("Warnung: XGBoost GPU Parameter abgelehnt, Fallback auf CPU.")
+            params["tree_method"] = "hist"
+    else:
+        params["tree_method"] = "hist" 
+
+    return xgb.XGBClassifier(**params)
+
+# --- 4. SVM ---
 def get_svm_model():
     base_model = LinearSVC(dual=False)
     return CalibratedClassifierCV(base_model)
