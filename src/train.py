@@ -30,7 +30,7 @@ def calculate_metrics(y_true, y_pred_binary, y_scores):
         "fpr": round(fpr, 4)
     }
 
-def run_cnn(file_path):
+def run_cnn(file_path, args):
     print("--- Modus: CNN (Raw URLs) ---")
     urls, labels = load_url_data(file_path)
 
@@ -90,7 +90,7 @@ def run_cnn(file_path):
     metrics = calculate_metrics(np.array(all_labels), y_pred, y_scores)
     monitor.end_measurement(task_name="Inferenz", extra_metrics=metrics)
 
-def run_svm_tfidf(file_path):
+def run_svm_tfidf(file_path, args):
     print("--- Modus: SVM + TFIDF (Raw URLs) ---")
     urls, labels = load_url_data(file_path)
     
@@ -119,10 +119,10 @@ def run_svm_tfidf(file_path):
     metrics = calculate_metrics(y_test, y_pred, y_scores)
     monitor.end_measurement(task_name="Inferenz", extra_metrics=metrics)
 
-def run_numeric_model(model_type, file_path):
+def run_numeric_model(model_type, file_path, args):
     print(f"--- Modus: {model_type.upper()} (Numeric Features) ---")
     # Features laden (standardisiert)
-    X, y = load_and_standardize_data(file_path, "Phishing?", ",") # Delimiter ggf. anpassen
+    X, y = load_and_standardize_data(file_path, "label") 
     
     X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
@@ -164,14 +164,25 @@ def run_numeric_model(model_type, file_path):
     monitor.end_measurement(task_name="Inferenz", extra_metrics=metrics)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, choices=["cnn", "lr", "svm", "xgb"])
-    parser.add_argument("--file", type=str, required=True, help="Path to CSV/TXT file")
+    parser = argparse.ArgumentParser(description="Phishing Detection Benchmark")
+    
+    # Pflichtfelder
+    parser.add_argument("--model", type=str, required=True, choices=["cnn", "lr", "svm", "xgb"], help="Wahl des Modells")
+    parser.add_argument("--file", type=str, required=True, help="Pfad zur CSV-Datei")
+    
+    # Optionale Hyperparameter (mit Standardwerten, falls man nichts angibt)
+    parser.add_argument("--epochs", type=int, default=5, help="Anzahl der Epochen (für NN)")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch Size")
+    parser.add_argument("--lr", type=float, default=0.001, help="Learning Rate")
+    
     args = parser.parse_args()
     
+    print(f"--- Starte Run: {args.model.upper()} | Epochs: {args.epochs} | LR: {args.lr} ---")
+    
+    # Wir müssen die Funktionen oben leicht anpassen, damit sie 'args' akzeptieren
     if args.model == "cnn":
-        run_cnn(args.file)
+        run_cnn(args.file, args) # args übergeben
     elif args.model == "svm":
-        run_svm_tfidf(args.file)
+        run_svm_tfidf(args.file) # SVM braucht meist keine Epochs/LR im Aufruf
     elif args.model in ["lr", "xgb"]:
-        run_numeric_model(args.model, args.file)
+        run_numeric_model(args.model, args.file, args) # args übergeben
