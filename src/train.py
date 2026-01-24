@@ -97,7 +97,7 @@ def run_cnn(file_path, args):
 
     # 1. Split Data (80% Train, 20% Test)
     # Train set remains balanced (or as is) so the model learns well.
-    X_train, X_test, y_train, y_test = train_test_split(urls, labels, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(urls, labels, test_size=0.2, random_state=args.seed)
     
     # 2. Apply Imbalance ONLY to Test Data (Real World Simulation)
     if args.imbalance_ratio > 0:
@@ -166,7 +166,7 @@ def run_svm_tfidf(file_path, args):
     text_data = [re.sub(r'\W+', ' ', str(u)) for u in urls]
     
     # 1. Split Data
-    X_train, X_test, y_train, y_test = train_test_split(text_data, labels, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(text_data, labels, test_size=0.2, random_state=args.seed)
     
     # 2. Apply Imbalance ONLY to Test Data
     if args.imbalance_ratio > 0:
@@ -200,11 +200,11 @@ def run_numeric_model(model_type, file_path, args):
     X, y = load_and_standardize_data(file_path, "label") 
     
     # 1. Split Data
-    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=args.seed)
     # Further split temp into Val/Test if needed, or just treat temp as test.
     # Let's keep it consistent: Train on 70%, Test on 30% (simplified from previous logic)
     # Or strict 80/20 as requested:
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=args.seed)
     
     # Ensure numpy format
     if hasattr(X_train, "values"): X_train = X_train.values
@@ -239,7 +239,7 @@ def run_numeric_model(model_type, file_path, args):
         model = get_xgboost_model(torch.cuda.is_available(), n_estimators=args.epochs, learning_rate=args.lr)
         monitor.start_measurement()
         # Create a small validation set from training data strictly for XGBoost early stopping (optional)
-        X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+        X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=args.seed)
         
         model.fit(X_tr.astype(float), y_tr.astype(float),
                   eval_set=[(X_val.astype(float), y_val.astype(float))], verbose=False)
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=5, help="Epochs (NN) or Estimators (XGB)")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch Size")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning Rate")
-    
+    parser.add_argument("--seed", type=int, default=42, help="Random Seed für Reproduzierbarkeit")
     # Imbalance Ratio for TEST set
     parser.add_argument("--imbalance_ratio", type=int, default=1000, help="Test Set Ratio Benign:Phishing (e.g. 1000). 0 to disable.")
     
