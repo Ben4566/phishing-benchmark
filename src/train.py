@@ -33,7 +33,7 @@ def calculate_metrics(y_true, y_pred_binary, y_scores):
 def run_cnn(file_path):
     print("--- Modus: CNN (Raw URLs) ---")
     urls, labels = load_url_data(file_path)
-    
+
     if len(urls) == 0: return
 
     # Split
@@ -55,7 +55,10 @@ def run_cnn(file_path):
 
     # Model Setup
     model = CNNModel(vocab_size).to(DEVICE)
-
+    optimizer = optim.Adam(model.parameters(), lr=0.001) # FEHLT IN DEINEM CODE
+    criterion = nn.BCELoss() # FEHLT IN DEINEM CODE
+    monitor = PerformanceMonitor("CNN")
+    
     # Training
     print("Starte Training...")
     monitor.start_measurement()
