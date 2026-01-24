@@ -384,5 +384,33 @@
         "f1_score": 1.0,
         "auc": 1.0,
         "fpr": 0.0
+    },
+    {
+        "model": "XGB",
+        "task": "Training",
+        "time_sec": 25.4018,
+        "ram_mb": 995.02,
+        "vram_system_peak_mb": 3317.95,
+        "vram_torch_peak_mb": 0.0,
+        "cpu_percent_avg": 107.3,
+        "gpu_util_percent_avg": 94.0,
+        "gpu_util_percent_peak": 97
+    },
+    {
+        "model": "XGB",
+        "task": "Inferenz",
+        "time_sec": 0.3092,
+        "ram_mb": 1007.98,
+        "vram_system_peak_mb": 3246.14,
+        "vram_torch_peak_mb": 0.0,
+        "cpu_percent_avg": 914.6,
+        "gpu_util_percent_avg": 93.0,
+        "gpu_util_percent_peak": 93,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "auc": 1.0,
+        "fpr": 0.0
     }
 ]
