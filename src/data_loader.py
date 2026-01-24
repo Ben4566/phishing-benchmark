@@ -1,75 +1,98 @@
-# Datei: data_loader.py
 import pandas as pd
 import numpy as np
 import os
 
-def load_and_standardize_data(filepath, target_col_name, delimiter=","):
-    """
-    Lädt einen Datensatz, entfernt Metadaten/IDs und gibt X (Features) und y (Target) zurück.
-    Garantiert identisches Preprocessing für alle Notebooks.
-    """
+def load_and_standardize_data(filepath, target_col_name="label"):
     print(f"--- [Loader] Starte Laden von: {os.path.basename(filepath)} ---")
-    
-    # 1. Laden (Robust gegen 'bad lines')
     try:
-        df = pd.read_csv(filepath, delimiter=delimiter, on_bad_lines='skip')
-    except TypeError:
-        # Fallback für ältere Pandas Versionen
-        df = pd.read_csv(filepath, delimiter=delimiter, error_bad_lines=False)
+        df = pd.read_csv(filepath, on_bad_lines='skip')
+    except Exception as e:
+        print(f"Warnung: Standard-Laden fehlgeschlagen ({e}), versuche Fallback...")
+        df = pd.read_csv(filepath, error_bad_lines=False)
 
-    # 2. Sicherheits-Drop: IDs und Metadaten entfernen
-    # Diese Liste enthält alles, was kein echtes Feature ist
-    drop_candidates = [
-        'FILENAME', 'filename', 
-        'URL', 'url', 
-        'id', 'ID', 'Index', 'index', 'uuid', 
-        'Unnamed: 0'
-    ]
-    # 'errors=ignore' sorgt dafür, dass es nicht abstürzt, wenn eine Spalte fehlt
-    df = df.drop(columns=drop_candidates, errors='ignore')
-    
-    # 3. Target-Spalte finden und retten
-    # Falls der übergebene Name nicht stimmt, suchen wir ihn oder nehmen die letzte Spalte
-    real_target_col = None
-    
-    if target_col_name in df.columns:
-        real_target_col = target_col_name
-    else:
-        print(f"Warnung: Target '{target_col_name}' nicht gefunden. Versuche Alternativen...")
-        # Liste typischer Target-Namen
-        alternatives = ['label', 'class', 'Phishing?', 'phishing', 'target']
-        for alt in alternatives:
-            if alt in df.columns:
-                real_target_col = alt
-                print(f"-> Habe '{alt}' als Target identifiziert.")
-                break
-        
-        # Wenn immer noch nichts gefunden, nimm die letzte Spalte
-        if real_target_col is None:
-            real_target_col = df.columns[-1]
-            print(f"-> Fallback: Nutze letzte Spalte '{real_target_col}' als Target.")
+    # 1. Validate target variable existence
+    # Since you standardized everything to "label", we strictly look for it.
+    if target_col_name not in df.columns:
+        raise ValueError(f"Error: The column '{target_col_name}' was not found in {filepath}.")
 
-    # Target temporär sichern
+    real_target_col = target_col_name
+    print(f"--- [Loader] Zielvariable identifiziert als: '{real_target_col}' ---")
+
+    # 2. Extract y (target)
     y_raw = df[real_target_col]
-    
-    # 4. Nur Zahlen behalten (Der "Fairness-Filter")
-    # Wirft alles raus, was Text ist (Domain-Namen, Pfade etc.)
-    df_numeric = df.select_dtypes(include=[np.number])
-    
-    # 5. X und y finalisieren
-    # Target aus X entfernen (falls es noch drin ist)
-    if real_target_col in df_numeric.columns:
-        X = df_numeric.drop(columns=[real_target_col])
-    else:
-        # Target war eh Text und wurde schon durch select_dtypes entfernt
-        X = df_numeric 
-        
-    # Target numerisch machen (für Modelle)
+
+    # 3. Prepare X: Drop target column
+    X_raw = df.drop(columns=[real_target_col])
+
+    # 4. Remove unnecessary metadata columns
+    drop_candidates = ['FILENAME', 'filename', 'URL', 'url', 'id', 'ID', 'Index', 'index', 'uuid', 'Unnamed: 0']
+    X_raw = X_raw.drop(columns=drop_candidates, errors='ignore')
+
+    # 5. Force X to numeric
+    # Coerce errors to NaN, then fill with 0
+    X = X_raw.apply(pd.to_numeric, errors='coerce').fillna(0)
+
+    # 6. Process y
     if y_raw.dtype == 'object' or hasattr(y_raw, 'cat'):
-        print("-> Wandle Text-Labels in Zahlen um...")
         y = y_raw.astype('category').cat.codes
     else:
         y = y_raw
 
     print(f"--- [Loader] Fertig. Features: {X.shape[1]}, Samples: {X.shape[0]} ---")
     return X, y
+
+# --- Function for Raw URLs (CNN, SVM) ---
+def load_url_data(csv_file_path):
+    print(f"Lade URL-Daten aus: {csv_file_path}...")
+    try:
+        df = pd.read_csv(csv_file_path)
+        
+        # Determine columns (simplified)
+        url_col = 'URL' if 'URL' in df.columns else 'url'
+        label_col = 'label'  # Strictly use 'label' now
+        
+        # Check if required columns exist
+        if url_col not in df.columns:
+            print(f"Fehler: URL-Spalte '{url_col}' nicht gefunden.")
+            return [], np.array([])
+            
+        if label_col not in df.columns:
+            print(f"Fehler: Label-Spalte '{label_col}' nicht gefunden.")
+            return [], np.array([])
+
+        df = df.dropna(subset=[url_col, label_col])
+        urls = df[url_col].astype(str).tolist()
+        
+        # Process labels
+        if pd.api.types.is_numeric_dtype(df[label_col]):
+            labels = df[label_col].values
+        else:
+            # Keep mapping just in case values are strings (e.g., 'phishing'/'benign')
+            label_mapping = {'phishing': 1, 'bad': 1, 'malicious': 1, 
+                             'benign': 0, 'good': 0, 'legitimate': 0}
+            labels = df[label_col].map(label_mapping)
+            
+            # Filter out unmapped labels
+            if labels.isna().any():
+                mask = labels.notna()
+                urls = [u for u, m in zip(urls, mask) if m]
+                labels = labels.dropna()
+            labels = labels.values.astype(int)
+            
+        print(f"Erfolgreich geladen: {len(urls)} URLs.")
+        return urls, np.array(labels)
+
+    except Exception as e:
+        print(f"Fehler beim Laden der CSV: {e}")
+        return [], np.array([])
+
+def encode_urls(urls, char_to_int, max_len=200):
+    encoded_batch = []
+    for url in urls:
+        vec = [char_to_int.get(c, 1) for c in url]
+        if len(vec) < max_len:
+            vec += [0] * (max_len - len(vec))
+        else:
+            vec = vec[:max_len]
+        encoded_batch.append(vec)
+    return np.array(encoded_batch)
