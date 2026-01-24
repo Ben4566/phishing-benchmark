@@ -12,9 +12,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
 
 # Local Modules
-from benchmark import PerformanceMonitor
-from data_loader import load_and_standardize_data, load_url_data, encode_urls
-from models import CNNModel, GPULogisticRegression, get_xgboost_model, get_svm_model
+from .benchmark import PerformanceMonitor
+from .data_loader import load_and_standardize_data, load_url_data, encode_urls
+from .models import CNNModel, GPULogisticRegression, get_xgboost_model, get_svm_model
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
