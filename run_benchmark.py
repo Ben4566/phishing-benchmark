@@ -1,23 +1,33 @@
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import json
-import src.train as train_script  
+import numpy as np
+import torch
 
-# --- CONFIGURATION BASED ON YOUR NOTEBOOK ---
-# I extracted these paths from main_experiment_runner.ipynb
+# 1. FIX: Pfad-Setup für Imports
+sys.path.append(os.getcwd())
+
+# 2. FIX: Alias angepasst
+import src.train as train 
+
+# --- KONFIGURATION (Pfade angepasst) ---
+# 3. FIX: "../" entfernt, da wir nun vom Hauptordner starten
 DATASETS = [
-    "../data/raw/combined_urls.csv",
-    "../data/processed/PhiUSIIL_Phishing_URL_Dataset.csv",
-    "../data/processed/feature_all.csv"
+    "data/raw/combined_urls.csv",
+    "data/processed/PhiUSIIL_Phishing_URL_Dataset.csv",
+    "data/processed/feature_all.csv"
 ]
 
-OUTPUT_CSV = "final_benchmark_results.csv"
+# ÄNDERUNG 2: Output-Ordner definieren und erstellen
+OUTPUT_DIR = "results"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Helper class to mimic argparse arguments
+# Pfad für die CSV in den results-Ordner legen
+OUTPUT_CSV = os.path.join(OUTPUT_DIR, "final_benchmark_results.csv")
+
 class ExperimentArgs:
     def __init__(self, model, file, epochs=5, batch_size=64, lr=0.001, imbalance_ratio=0, seed=42):
         self.model = model
@@ -28,7 +38,7 @@ class ExperimentArgs:
         self.imbalance_ratio = imbalance_ratio
         self.seed = seed 
 
-def get_latest_benchmark_entry(json_path="results/benchmark_results.json"): # Pfad hier anpassen
+def get_latest_benchmark_entry(json_path="benchmark_results.json"):
     if not os.path.exists(json_path): return None
     try:
         with open(json_path, 'r') as f:
@@ -38,19 +48,15 @@ def get_latest_benchmark_entry(json_path="results/benchmark_results.json"): # Pf
 
 def run_full_benchmark():
     results = []
-    
-    # Models to test
     models = ["cnn", "xgb", "lr", "svm"] 
-    # Statistical Significance: 3 runs with different seeds
     seeds = [42, 1337, 2024]        
-    # Imbalance Scenarios: 0 (As is) vs 1000 (Real World)
     ratios = [0, 1000]              
 
-    print(f"--- STARTING AUTOMATION ---")
-    print(f"Datasets: {len(DATASETS)} found.")
+    print(f"--- STARTING AUTOMATION FROM ROOT ---")
+    print(f"Results will be saved to: {OUTPUT_DIR}/")
+    print(f"Datasets: {len(DATASETS)} defined.")
     
     for dataset in DATASETS:
-        # Check if file exists relative to current folder
         if not os.path.exists(dataset):
             print(f"WARNING: File {dataset} not found. Skipping.")
             continue
@@ -58,20 +64,23 @@ def run_full_benchmark():
         dataset_name = os.path.basename(dataset)
         print(f"\n>>> Processing Dataset: {dataset_name} <<<")
 
-        # Warm-up (Optional, try CNN once)
+        # Warm-up (optional, nur wenn nötig)
         try:
             print("   -> Warm-up run...")
-            # We use a dummy try because not all datasets support CNN
             train.run_cnn(dataset, ExperimentArgs("cnn", dataset, epochs=1, seed=42))
         except Exception:
-            pass # Ignore warm-up errors
+            pass 
 
         for model in models:
+            # ÄNDERUNG 1: SVM nur für combined_urls.csv zulassen
+            if model == "svm" and dataset_name != "combined_urls.csv":
+                print(f"   -> [SKIP] SVM is restricted to 'combined_urls.csv'. Skipping for {dataset_name}.")
+                continue
+
             for ratio in ratios:
                 for i, seed in enumerate(seeds):
                     print(f"   -> {model.upper()} | Ratio {ratio}:1 | Seed {seed} ({i+1}/{len(seeds)})")
                     
-                    # Auto-Tuning logic from your notebook/train.py
                     curr_epochs = 100 if model == "xgb" else 5
                     curr_lr = 0.1 if model == "xgb" else 0.001
                     
@@ -84,17 +93,10 @@ def run_full_benchmark():
                         seed=seed
                     )
                     
-                    # Set global seeds for safety
                     np.random.seed(seed)
                     torch.manual_seed(seed)
                     
                     try:
-                        # Execute Model
-                        # The try-except block is CRITICAL here because:
-                        # - 'combined_urls.csv' will fail for XGB/LR (no numeric features)
-                        # - 'feature_all.csv' will fail for CNN (no URL column)
-                        # The script will just catch the error and move to the next valid combination.
-                        
                         if model == "cnn":
                             train.run_cnn(dataset, args)
                         elif model == "svm":
@@ -102,7 +104,6 @@ def run_full_benchmark():
                         elif model in ["lr", "xgb"]:
                             train.run_numeric_model(model, dataset, args)
                         
-                        # Capture Result
                         entry = get_latest_benchmark_entry()
                         if entry:
                             entry["dataset_name"] = dataset_name
@@ -111,10 +112,8 @@ def run_full_benchmark():
                             results.append(entry)
                             
                     except Exception as e:
-                        # This print is normal! It just means this dataset isn't made for this model.
                         print(f"      [SKIP] {model} not compatible with {dataset_name} ({e})")
 
-    # Save Results
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_CSV, index=False)
     print(f"\n--- Done. Results saved to {OUTPUT_CSV} ---")
@@ -133,7 +132,8 @@ def generate_plots(df):
         ds_data = df[df["dataset_name"] == ds]
         filename_suffix = ds.replace(".", "_")
 
-        # 1. Performance at 1000:1 Imbalance
+        # ÄNDERUNG 2 (Plots): Pfade angepasst auf OUTPUT_DIR
+
         subset_1000 = ds_data[ds_data["imbalance_ratio"] == 1000]
         if not subset_1000.empty:
             plt.figure(figsize=(8, 5))
@@ -144,10 +144,10 @@ def generate_plots(df):
             plt.title(f"F1-Score at 1000:1 Imbalance\n({ds})")
             plt.ylim(0, 1.05)
             plt.tight_layout()
-            plt.savefig(f"plot_f1_1000_{filename_suffix}.png")
+            # Plot speichern im results Ordner
+            plt.savefig(os.path.join(OUTPUT_DIR, f"plot_f1_1000_{filename_suffix}.png"))
             plt.close()
 
-        # 2. Robustness (Balanced vs Imbalanced)
         plt.figure(figsize=(8, 5))
         sns.pointplot(
             data=ds_data, x="imbalance_ratio", y="f1_score", 
@@ -155,10 +155,11 @@ def generate_plots(df):
         )
         plt.title(f"Imbalance Impact\n({ds})")
         plt.tight_layout()
-        plt.savefig(f"plot_robustness_{filename_suffix}.png")
+        # Plot speichern im results Ordner
+        plt.savefig(os.path.join(OUTPUT_DIR, f"plot_robustness_{filename_suffix}.png"))
         plt.close()
 
-    # 3. Efficiency (Global)
+    # Globaler Plot
     plt.figure(figsize=(10, 6))
     sns.scatterplot(
         data=df, x="time_sec", y="vram_system_peak_mb", 
@@ -166,13 +167,14 @@ def generate_plots(df):
     )
     plt.title("Efficiency: Time vs. VRAM")
     plt.tight_layout()
-    plt.savefig("plot_efficiency_global.png")
+    # Plot speichern im results Ordner
+    plt.savefig(os.path.join(OUTPUT_DIR, "plot_efficiency_global.png"))
     plt.close()
 
 if __name__ == "__main__":
-    # Ensure we are in the 'src' directory (where train.py is)
-    if not os.path.exists("train.py"):
-        print("Error: train.py not found. Please run this script from the 'src' folder.")
+    # 4. FIX: Check auf src/train.py statt train.py
+    if not os.path.exists("src/train.py"):
+        print("Error: src/train.py not found. Please ensure you are running from the PROJECT ROOT.")
     else:
         df_results = run_full_benchmark()
         generate_plots(df_results)
