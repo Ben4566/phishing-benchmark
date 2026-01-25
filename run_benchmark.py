@@ -28,8 +28,7 @@ class ExperimentArgs:
         self.imbalance_ratio = imbalance_ratio
         self.seed = seed 
 
-def get_latest_benchmark_entry(json_path="benchmark_results.json"):
-    """Reads the last entry from the benchmark JSON file."""
+def get_latest_benchmark_entry(json_path="results/benchmark_results.json"): # Pfad hier anpassen
     if not os.path.exists(json_path): return None
     try:
         with open(json_path, 'r') as f:
