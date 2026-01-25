@@ -32,8 +32,7 @@ dependencies = [
     
     # System & Hardware Monitoring (Wichtig für benchmark.py)
     "psutil>=7.2.1",
-    "nvidia-ml-py>=13.590.44",  # Ersetzt oft pynvml, enthält aber die Bindings
-    "pynvml>=13.0.1",           # Sicherheitshalber explizit drin lassen, da importiert
+    "nvidia-ml-py>=13.590.44",  # Ersetzt oft pynvml, enthält aber die Bindings   
     
     # Utilities
     "requests>=2.32.5",
