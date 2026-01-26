@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import xgboost as xgb  # <--- Dieser Import ist entscheidend!
+import xgboost as xgb
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
+from typing import Any  # Für Type-Hints
 
 # --- 1. CNN Model ---
 class CNNModel(nn.Module):
-    def __init__(self, vocab_size, embed_dim=32):
+    def __init__(self, vocab_size: int, embed_dim: int = 32):
         super(CNNModel, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
         self.conv1 = nn.Conv1d(in_channels=embed_dim, out_channels=128, kernel_size=5)
@@ -19,32 +20,31 @@ class CNNModel(nn.Module):
         self.fc1 = nn.Linear(64, 64)
         self.dropout = nn.Dropout(0.5)
         self.fc2 = nn.Linear(64, 1)
-        self.sigmoid = nn.Sigmoid()
+        # HINWEIS: self.sigmoid entfernt für BCEWithLogitsLoss Stabilität
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedding(x)
         x = x.permute(0, 2, 1) 
         x = self.pool1(self.relu(self.conv1(x)))
         x = self.global_pool(self.relu(self.conv2(x)))
         x = x.squeeze(-1) 
         x = self.dropout(self.relu(self.fc1(x)))
-        x = self.sigmoid(self.fc2(x))
-        return x
+        # Rückgabe von Logits (keine Aktivierung), da Loss-Funktion dies erwartet
+        return self.fc2(x)
 
 # --- 2. Logistic Regression (PyTorch) ---
 class GPULogisticRegression(nn.Module):
-    def __init__(self, input_dim, device):
+    def __init__(self, input_dim: int, device: torch.device):
         super(GPULogisticRegression, self).__init__()
         self.linear = nn.Linear(input_dim, 1)
         self.device = device
         self.to(device)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.sigmoid(self.linear(x))
 
     def fit(self, X, y, epochs=100, lr=0.01, batch_size=4096):
         self.train()
-        # Convert pandas/numpy to tensor
         X_np = X.values if hasattr(X, 'values') else X
         y_np = y.values if hasattr(y, 'values') else y
         
@@ -57,8 +57,7 @@ class GPULogisticRegression(nn.Module):
         num_samples = X_tensor.shape[0]
         num_batches = int(np.ceil(num_samples / batch_size))
         
-        print(f"Starte Training für {epochs} Epochen...")
-        for epoch in range(epochs):
+        for _ in range(epochs):
             indices = torch.randperm(num_samples, device=self.device)
             for i in range(num_batches):
                 start = i * batch_size
@@ -71,7 +70,7 @@ class GPULogisticRegression(nn.Module):
                 loss.backward()
                 optimizer.step()
                 
-    def predict_proba(self, X):
+    def predict_proba(self, X) -> np.ndarray:
         self.eval()
         X_np = X.values if hasattr(X, 'values') else X
         X_tensor = torch.tensor(X_np, dtype=torch.float32).to(self.device)
@@ -81,11 +80,10 @@ class GPULogisticRegression(nn.Module):
         return np.vstack(((1 - probs), probs)).T
 
 # --- 3. XGBoost ---
-def get_xgboost_model(use_cuda, n_estimators=100, learning_rate=0.1):
-    # Mapping der Parameter
+def get_xgboost_model(use_cuda: bool, n_estimators: int = 100, learning_rate: float = 0.1) -> xgb.XGBClassifier:
     params = {
-        "n_estimators": n_estimators,  # Das entspricht deinen 'epochs'
-        "learning_rate": learning_rate, # Das ist deine 'lr'
+        "n_estimators": n_estimators,
+        "learning_rate": learning_rate,
         "max_depth": 6,                
         "objective": "binary:logistic",
         "eval_metric": "logloss",
@@ -93,11 +91,9 @@ def get_xgboost_model(use_cuda, n_estimators=100, learning_rate=0.1):
 
     if use_cuda:
         try:
-            # Versuch GPU zu nutzen
             params["tree_method"] = "hist" 
             params["device"] = "cuda"
         except:
-            print("Warnung: XGBoost GPU Parameter abgelehnt, Fallback auf CPU.")
             params["tree_method"] = "hist"
     else:
         params["tree_method"] = "hist" 
@@ -105,6 +101,6 @@ def get_xgboost_model(use_cuda, n_estimators=100, learning_rate=0.1):
     return xgb.XGBClassifier(**params)
 
 # --- 4. SVM ---
-def get_svm_model():
+def get_svm_model() -> Any:
     base_model = LinearSVC(dual=False)
     return CalibratedClassifierCV(base_model)

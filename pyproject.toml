@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phishing-benchmark"
+version = "0.1.0"
+description = "High-Performance Phishing Detection Benchmark"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Dein Name", email = "deine.email@example.com" },
+]
+
+# Hier sind nur die Pakete, die dein Code wirklich importiert.
+# Versionen basieren auf deiner requirements.txt [cite: 293]
+dependencies = [
+    # Core Data Science
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.0",
+    
+    # Machine Learning / Deep Learning
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "xgboost>=3.1.3",
+    
+    # Visualization
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+    
+    # System & Hardware Monitoring (Wichtig für benchmark.py)
+    "psutil>=7.2.1",
+    "nvidia-ml-py>=13.590.44",  # Ersetzt oft pynvml, enthält aber die Bindings   
+    
+    # Utilities
+    "requests>=2.32.5",
+    "PyYAML>=6.0.3",
+    
+    # Audit Requirements (Sicherheit & Code Quality)
+    "safetensors>=0.4.0",       # 
+    "ruff>=0.1.0"               # 
+]
+
+# Optionale Abhängigkeiten (z.B. für Entwicklung/Notebooks)
+[project.optional-dependencies]
+dev = [
+    "jupyterlab>=4.5.2",
+    "notebook>=7.5.2",
+    "ipykernel>=7.1.0"
+]
+
+# --- Tool Konfiguration: Ruff (Linter & Formatter) ---
+# Das Audit empfiehlt Ruff statt Flake8/Black 
+[tool.ruff]
+# Setzt die Zeilenlänge auf 120 (gut für ML-Code)
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# E: Error, F: Pyflakes, I: Import-Sortierung
+select = ["E", "F", "I", "W"]
+ignore = []
+
+[tool.ruff.lint.isort]
+# Damit Python weiß, dass 'src' dein eigenes Modul ist
+known-first-party = ["src"]
