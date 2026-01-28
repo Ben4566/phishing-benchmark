@@ -4,13 +4,12 @@ import pandas as pd
 import os
 import numpy as np
 
-# Senior-Level Comment:
-# Robust visualization module.
-# Now includes a configuration dictionary for per-metric formatting precision.
+# --- LOGGING INTEGRATION ---
+from src.logger import setup_logger
+logger = setup_logger(__name__)
 
 # --- KONFIGURATION: INDIVIDUELLE FORMATIERUNG ---
 # Hier definierst du das Format für jede Spalte einzeln.
-# Syntax: '.2f' = 2 Nachkommastellen, '.4f' = 4 Nachkommastellen
 METRIC_FORMATS = {
     # Zeitmessungen (oft klein, daher genauer)
     'time_sec': '.4f',
@@ -21,9 +20,9 @@ METRIC_FORMATS = {
     'recall': '.3f',
     'f1_score': '.3f',
     'auc': '.4f',
-    'fpr': '.5f',  # False Positive Rate ist oft sehr klein (z.B. 0.0001)
+    'fpr': '.5f',
     
-    # Hardware-Metriken (grobere Auflösung reicht)
+    # Hardware-Metriken
     'ram_mb': '.1f',
     'vram_system_peak_mb': '.1f',
     'cpu_percent_avg': '.1f',
@@ -38,7 +37,6 @@ def annotate_bars(ax, df, x_col, y_col, hue_col=None, order=None, hue_order=None
     Matches patches to data using coordinate logic and provided ordering.
     """
     # 1. Determine Format
-    # Holt das Format für die aktuelle Spalte (y_col) oder nimmt den Standard
     fmt = METRIC_FORMATS.get(y_col, DEFAULT_FORMAT)
 
     # 2. Calculate Statistics
@@ -46,10 +44,11 @@ def annotate_bars(ax, df, x_col, y_col, hue_col=None, order=None, hue_order=None
     if hue_col and hue_col != x_col:
         group_cols.append(hue_col)
     
+    # fillna(0) verhindert Fehler bei leeren Gruppen
     stats = df.groupby(group_cols)[y_col].agg(['mean', 'std']).fillna(0)
     
     is_grouped = (hue_col is not None) and (hue_col != x_col)
-    n_x = len(order)
+    n_x = len(order) if order else 0
     
     for i, p in enumerate(ax.patches):
         if pd.isna(p.get_height()) or p.get_height() <= 0:
@@ -87,11 +86,10 @@ def annotate_bars(ax, df, x_col, y_col, hue_col=None, order=None, hue_order=None
                     std_val = stats.loc[x_val, 'std']
             except KeyError: continue
         
-        # --- FORMATTING APPLIED HERE ---
-        # Wir nutzen f"{value:{fmt}}" um das Format dynamisch anzuwenden
+        # Formatierung anwenden
         label = f"{mean_val:{fmt}}\n±{std_val:{fmt}}"
         
-        # Position Text
+        # Text positionieren
         _x = p.get_x() + p.get_width() / 2
         _y = p.get_y() + p.get_height()
         offset = _y * 0.02 if _y > 0 else 0.01
@@ -115,7 +113,8 @@ def generate_benchmark_plots(plot_df: pd.DataFrame, title_suffix: str, output_pa
     mask_inf = plot_df['task'].astype(str).str.lower().str.strip() == 'inference'
     inf_df = plot_df[mask_inf]
     
-    print(f"   -> [DEBUG] Plot '{title_suffix}': Found {len(train_df)} rows for Training.")
+    # Debug-Log statt Print
+    logger.debug(f"Plot '{title_suffix}': Found {len(train_df)} rows for Training, {len(inf_df)} for Inference.")
 
     # Plot 1 (Top-Left): Training Time
     ax_train = axes[0, 0]
@@ -186,42 +185,52 @@ def generate_benchmark_plots(plot_df: pd.DataFrame, title_suffix: str, output_pa
                 annotate_bars(ax, inf_df, 'model', col, hue_col='model', order=model_order)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    try:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        logger.info(f"Saved plot to: {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save plot to {output_path}: {e}")
     plt.close()
-    print(f" -> Saved plot to: {output_path}")
 
 def generate_plots(df_raw: pd.DataFrame, output_dir: str):
     if df_raw.empty:
-        print("No data to plot.")
+        logger.warning("No data provided to generate_plots. Skipping.")
         return
 
+    # Namen normalisieren
     model_map = {'CNN': 'CNN', 'XGB': 'XGBoost', 'LR': 'Logistic Regression', 'SVM_TFIDF': 'Linear SVC'}
     df_raw['model'] = df_raw['model'].map(lambda x: model_map.get(x, x))
 
+    # Datasets unterscheiden
     def distinguish_dataset(row):
         ds_name = row.get('dataset_name', row.get('dataset', ''))
         if "PhiUSIIL" in str(ds_name): return f"{row['model']} PhiUSIIL"
         return row['model']
     df_raw['model'] = df_raw.apply(distinguish_dataset, axis=1)
 
+    # Typ-Konvertierung
     cols_to_convert = ['time_sec', 'ram_mb', 'vram_system_peak_mb', 'cpu_percent_avg', 
                        'gpu_util_percent_avg', 'accuracy', 'precision', 'recall', 'f1_score', 'auc', 'fpr']
     for col in cols_to_convert:
         if col in df_raw.columns:
             df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
 
-    print("\n--- Starting Visualization ---")
+    logger.info("--- Starting Visualization Generation ---")
+    
+    # Basismodelle Plot
     base_model_names = ['CNN', 'Logistic Regression', 'Linear SVC', 'XGBoost']
     df_base = df_raw[df_raw['model'].isin(base_model_names)].copy()
     
     if not df_base.empty:
         generate_benchmark_plots(df_base, "Basismodelle", os.path.join(output_dir, "benchmark_basismodelle.png"))
     else:
-        print("[WARN] No base model data found for overview plot.")
+        logger.warning("No base model data found for overview plot.")
 
+    # Vergleichsplots für Varianten (PhiUSIIL vs. Normal)
     targets = ['CNN', 'Logistic Regression', 'Linear SVC', 'XGBoost']
     for target in targets:
         target_phi = f"{target} PhiUSIIL"
         df_compare = df_raw[df_raw['model'].isin([target, target_phi])].copy()
-        if not df_compare.empty:
+        
+        if not df_compare.empty and len(df_compare['model'].unique()) > 1:
             generate_benchmark_plots(df_compare, f"Compare {target}", os.path.join(output_dir, f"benchmark_compare_{target.replace(' ', '_')}.png"))

@@ -9,6 +9,11 @@ from typing import List, Dict, Any
 # --- IMPORTS ---
 import src.train as train 
 import src.visualize as viz
+from src.logger import setup_logger
+
+# Logger initialisieren (Singleton-Pattern via logging modul)
+# Das schreibt nun in 'logs/benchmark_run_DATUM.log' UND in die Konsole
+logger = setup_logger("BenchmarkRunner")
 
 # --- CONFIGURATION & CONSTANTS ---
 DATASETS = [
@@ -22,31 +27,27 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "final_benchmark_results.csv")
 BENCHMARK_JSON = "benchmark_results.json"
 
-# --- SENIOR-LEVEL UPDATE: CENTRALIZED HYPERPARAMETER CONFIGURATION ---
-# Senior-Level Comment:
-# We externalize hyperparameters into a structured dictionary acting as a 'Single Source of Truth'.
-# This eliminates 'magic numbers' buried within execution loops and allows for 
-# rapid experimentation (e.g., changing CNN epochs) without risking logic regression in the pipeline.
+# --- CENTRALIZED CONFIGURATION ---
 MODEL_CONFIG = {
     "cnn": {
-        "epochs": 1,       # <--- HIER EINFACH ÄNDERN (z.B. von 5 auf 20)
+        "epochs": 1,        
         "lr": 0.001,
         "batch_size": 64
     },
     "svm": {
-        "epochs": 1,        # SVM in sklearn doesn't iterate epochs the same way, but keeping structure consistent
-        "lr": 0.0,          # Not used for SVM (handled by sklearn internally)
-        "batch_size": 0     # Not used
+        "epochs": 1,        
+        "lr": 0.0,          
+        "batch_size": 0     
     },
     "xgb": {
-        "epochs": 100,      # Represents n_estimators
+        "epochs": 100,      
         "lr": 0.1,
-        "batch_size": 0     # Not used
+        "batch_size": 0     
     },
     "lr": {
         "epochs": 50,
         "lr": 0.01,
-        "batch_size": 4096  # Larger batch size for GPU Logistic Regression
+        "batch_size": 4096  
     }
 }
 
@@ -76,18 +77,18 @@ def run_full_benchmark():
     
     # Define the search space
     models = ["cnn", "svm", "xgb", "lr"] 
-    seeds = [42, 1337, 2024] #, 1337, 2024]  # Reduced for quicker testing
+    seeds = [42] #, 1337, 2024
     ratios = [1000]
 
-    print(f"--- STARTING ORCHESTRATION: Benchmark Suite ---")
+    logger.info("--- STARTING ORCHESTRATION: Benchmark Suite ---")
     
     for dataset in DATASETS:
         if not os.path.exists(dataset):
-            print(f"[WARNING] Dataset artifact missing: {dataset}. Skipping.")
+            logger.warning(f"Dataset artifact missing: {dataset}. Skipping.")
             continue
             
         dataset_name = os.path.basename(dataset)
-        print(f"\n>>> Context: {dataset_name} <<<")
+        logger.info(f">>> Context: {dataset_name} <<<")
 
         # --- MODALITY GUARDRAILS ---
         is_hybrid  = "PhiUSIIL" in dataset_name      
@@ -95,27 +96,25 @@ def run_full_benchmark():
         is_text    = "combined_urls" in dataset_name 
 
         for model in models:
-            # Check constraints (Text vs Numeric vs Hybrid)
+            # Check constraints
             if is_text and model in ["xgb", "lr"]: continue 
             if is_numeric and model in ["cnn", "svm"]: continue 
             
-            # Senior-Level Comment:
-            # Retrieve model-specific configuration. 
-            # This implements the Strategy Pattern implicitly: the execution logic adapts 
-            # based on the config state rather than hardcoded if-else blocks.
+            # Get Config
             config = MODEL_CONFIG.get(model, {"epochs": 5, "lr": 0.001, "batch_size": 64})
 
             for ratio in ratios:
                 for seed in seeds:
-                    print(f"   -> Executing: {model.upper()} | Prior: {ratio}:1 | Seed: {seed}")
-                    print(f"      [Config] Epochs: {config['epochs']} | LR: {config['lr']}")
+                    # Logging statt Print für saubere Protokollierung
+                    logger.info(f"   -> Executing: {model.upper()} | Prior: {ratio}:1 | Seed: {seed}")
+                    logger.debug(f"      [Config] Epochs: {config['epochs']} | LR: {config['lr']}")
 
                     args = ExperimentArgs(
                         model=model,
                         file=dataset,
-                        epochs=config["epochs"],        # Injected from Config
-                        lr=config["lr"],                # Injected from Config
-                        batch_size=config["batch_size"],# Injected from Config
+                        epochs=config["epochs"],
+                        lr=config["lr"],
+                        batch_size=config["batch_size"],
                         imbalance_ratio=ratio,
                         seed=seed
                     )
@@ -123,7 +122,7 @@ def run_full_benchmark():
                     history_before = load_benchmark_history()
                     
                     try:
-                        # ... (Modell-Training Aufrufe bleiben gleich) ...
+                        # --- Execution Delegate ---
                         if model == "cnn":
                             train.run_cnn(dataset, args)
                         elif model == "svm":
@@ -131,45 +130,52 @@ def run_full_benchmark():
                         elif model in ["lr", "xgb"]:
                             train.run_numeric_model(model, dataset, args)
                         
-                        # --- SENIOR-LEVEL FIX: CAPTURE ALL NEW ENTRIES ---
-                        # Wir berechnen das Delta, um sicherzustellen, dass sowohl 
-                        # 'Training' als auch 'Inference' Einträge erfasst werden.
+                        # --- Result Capture ---
                         history_after = load_benchmark_history()
                         new_items_count = len(history_after) - len(history_before)
                         
                         if new_items_count > 0:
-                            # Hole alle neuen Einträge (Slicing von hinten)
                             new_entries = history_after[-new_items_count:]
-                            
                             for entry in new_entries:
                                 entry["dataset_name"] = dataset_name
                                 entry["imbalance_ratio"] = ratio
                                 entry["seed"] = seed
                                 results.append(entry)
                             
-                            print(f"      [SUCCESS] Captured {new_items_count} new result(s) for {model}.")
+                            logger.info(f"[SUCCESS] Captured {new_items_count} new result(s) for {model}.")
                         else:
-                            print(f"      [WARNING] Pipeline finished but no results were persisted for {model}.")
+                            # Warnung, wenn zwar Code lief, aber keine JSON-Daten geschrieben wurden
+                            logger.warning(f"Pipeline finished for {model} but no results were persisted.")
                             
                     except Exception as e:
-                        print(f"      [ERROR] Pipeline failed: {e}")
+                        # Senior-Level: exc_info=True speichert den vollen Stacktrace im Logfile
+                        logger.error(f"      [CRITICAL] Pipeline failed for {model}: {e}", exc_info=True)
 
     if results:
         df = pd.DataFrame(results)
         df.to_csv(OUTPUT_CSV, index=False)
-        print(f"\n--- Benchmark Complete. Aggregated results saved to {OUTPUT_CSV} ---")
+        logger.info(f"--- Benchmark Complete. Aggregated results saved to {OUTPUT_CSV} ---")
         return df
     else:
-        print("No results generated.")
+        logger.warning("No results generated during this run.")
         return pd.DataFrame()
   
 if __name__ == "__main__":
     df_results = run_full_benchmark()
     
     if not df_results.empty:
-        print("Generating visualizations...")
-        viz.generate_plots(df_results, OUTPUT_DIR)
+        logger.info("Generating visualizations...")
+        try:
+            viz.generate_plots(df_results, OUTPUT_DIR)
+            logger.info(f"Plots saved to {OUTPUT_DIR}")
+        except Exception as e:
+            logger.error(f"Visualization failed: {e}", exc_info=True)
+            
     elif os.path.exists(OUTPUT_CSV):
-         print("Loading existing results for visualization...")
-         df_existing = pd.read_csv(OUTPUT_CSV)
-         viz.generate_plots(df_existing, OUTPUT_DIR)
+         logger.info("Loading existing results for visualization...")
+         try:
+             df_existing = pd.read_csv(OUTPUT_CSV)
+             viz.generate_plots(df_existing, OUTPUT_DIR)
+             logger.info(f"Plots saved to {OUTPUT_DIR}")
+         except Exception as e:
+             logger.error(f"Visualization of existing data failed: {e}", exc_info=True)
