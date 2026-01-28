@@ -1,21 +1,32 @@
-# conf/config.yaml
-
 defaults:
   - _self_
-  - model: cnn   
-  - dataset: url_raw       # Standardmodell, falls nichts angegeben wird
-  # Optional: Dataset später hier hinzufügen
-  # - dataset: ...
+  - model: cnn          
+  - dataset: url_raw    
 
-# Globale Einstellungen aus run_benchmark.py und train.py
-seed: 42                #
-imbalance_ratio: 1000   #
-output_dir: results     #
+seed: 42
+imbalance_ratio: 1000
+output_dir: results
 
-# Logging Einstellungen (optional, damit Hydra Logs in 'logs' speichert)
 hydra:
   run:
     dir: logs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
     dir: logs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${model.name}_seed${seed}
+    subdir: ${model.name}_${dataset.name}_seed${seed}
+  
+  # --- HIER IST DIE MAGIE ---
+  sweeper:
+    params:
+      model: cnn,svm,xgb,lr
+      dataset: url_raw,features,phiusiil
+      seed: 42,1337,2024
+    
+    # Inkompatible Kombinationen ausschließen
+    exclude:
+      # Regel 1: Numerische Modelle (XGB, LR) brauchen Features, keinen Text (url_raw)
+      - model: xgb,lr
+        dataset: url_raw
+      
+      # Regel 2: Deep Learning / NLP (CNN, SVM) brauchen Text, keine reinen Zahlen-Features
+      - model: cnn,svm
+        dataset: features

@@ -14,41 +14,23 @@ logger = setup_logger("HydraRunner")
 def main(cfg: DictConfig):
     """
     Hydra Entry Point.
-    Jeder Aufruf dieser Funktion entspricht EINEM Experiment (ein Modell, ein Dataset, ein Seed).
+    Jeder Aufruf dieser Funktion entspricht EINEM Experiment.
+    Inkompatible Kombinationen werden jetzt bereits in config.yaml via 'exclude' gefiltert.
     """
     
-    # 1. Logging der aktiven Konfiguration (wichtig für Reproduzierbarkeit)
-    # Hydra erstellt automatisch einen Ordner für diesen Run und speichert dort Logs.
+    # 1. Logging
     logger.info(f"--- Starting Run [Model: {cfg.model.name} | Dataset: {cfg.dataset.name}] ---")
     logger.debug(f"Full Config:\n{OmegaConf.to_yaml(cfg)}")
 
     # 2. Global Seed setzen
     train.seed_everything(cfg.seed)
 
-    # 3. Pfad- und Kompatibilitäts-Checks (Guardrails)
-    # Wir müssen prüfen, ob das gewählte Modell zum gewählten Dataset passt.
-    dataset_path = str(cfg.dataset.path)
+    # 3. Parameter vorbereiten
     model_name = cfg.model.name
-
-    is_text_data = "url" in dataset_path.lower() or "combined" in dataset_path.lower()
-    is_numeric_data = "feature" in dataset_path.lower() or "phiusiil" in dataset_path.lower()
-
-    # Regel: Numerische Modelle (XGB, LR) nicht auf Raw-URL-Text loslassen
-    if is_text_data and model_name in ["xgb", "lr"]:
-        logger.warning(f"SKIPPING: Model '{model_name}' is not designed for Text/URL data ({dataset_path}).")
-        return # Beendet diesen Run sauber ohne Fehler
-
-    # Regel: Deep Learning / NLP Modelle (CNN, SVM-TFIDF) nicht auf reinen Zahlen-Features
-    # (Hinweis: CNN könnte angepasst werden, aber im aktuellen Code erwartet es Strings)
-    if is_numeric_data and model_name in ["cnn", "svm"]:
-        logger.warning(f"SKIPPING: Model '{model_name}' is not designed for Pre-extracted Numeric Features ({dataset_path}).")
-        return
 
     # 4. Training starten
     try:
-        # Hydra ändert das Working Directory. Wir nutzen hydra.utils.to_absolute_path in train.py
-        # oder übergeben hier schon absolute Pfade, aber train.py wurde im letzten Schritt
-        # darauf vorbereitet, das 'cfg' Objekt zu nehmen.
+        # Die Checks "if is_text_pure and model_name == xgb..." sind nicht mehr nötig!
         
         if model_name == "cnn":
             train.run_cnn(cfg)
@@ -61,8 +43,14 @@ def main(cfg: DictConfig):
             
     except Exception as e:
         logger.error(f"Pipeline failed for {model_name} on {cfg.dataset.name}: {e}", exc_info=True)
-        # Wir raisen den Fehler, damit Hydra den Run als 'FAILED' markiert
         raise e
 
 if __name__ == "__main__":
+    # AUTOMATISIERUNG:
+    # Wenn keine Argumente übergeben wurden (len=1, da Skriptname selbst arg[0] ist),
+    # starte automatisch den vollen Benchmark (-m).
+    if len(sys.argv) == 1:
+        logger.info("--- Keine Argumente gefunden. Starte automatischen Full-Benchmark (-m) ---")
+        sys.argv.append("-m")
+
     main()
