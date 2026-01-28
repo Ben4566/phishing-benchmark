@@ -40,7 +40,11 @@ dependencies = [
     
     # Audit Requirements (Sicherheit & Code Quality)
     "safetensors>=0.4.0",       # 
-    "ruff>=0.1.0"               # 
+    "ruff>=0.1.0"    
+    
+    # ... deine existierenden Pakete ...
+    "hydra-core>=1.3.2",
+    "omegaconf>=2.3.0",          
 ]
 
 # Optionale Abhängigkeiten (z.B. für Entwicklung/Notebooks)

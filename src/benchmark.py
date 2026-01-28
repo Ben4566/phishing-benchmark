@@ -8,6 +8,9 @@ import threading
 import numpy as np
 from typing import Optional, Dict, Any
 
+# Hydra importieren um das Original-Verzeichnis zu finden
+import hydra 
+
 # --- LOGGING INTEGRATION ---
 from src.logger import setup_logger
 logger = setup_logger(__name__)
@@ -24,7 +27,17 @@ class PerformanceMonitor:
     def __init__(self, model_name: str, dataset_name: str = "unknown", save_path: str = "benchmark_results.json", sampling_rate: float = 0.01):
         self.model_name = model_name
         self.dataset_name = dataset_name
-        self.save_path = save_path
+        
+        # --- FIX FÜR HYDRA ---
+        # Hydra ändert das Arbeitsverzeichnis. Wir wollen aber im Hauptprojekt speichern.
+        try:
+            # Holt den Pfad, wo du den Befehl ausgeführt hast
+            orig_cwd = hydra.utils.get_original_cwd()
+            self.save_path = os.path.join(orig_cwd, save_path)
+        except Exception:
+            # Fallback, falls Hydra nicht läuft
+            self.save_path = save_path
+            
         self.process = psutil.Process(os.getpid())
         self.sampling_rate = sampling_rate
         
@@ -111,20 +124,22 @@ class PerformanceMonitor:
         if extra_metrics:
             data.update(extra_metrics)
         
-        # Logging der Ergebnisse statt Print
         logger.info(f"--- Results {self.model_name} | Data: {self.dataset_name} ({task_name}) ---")
-        logger.info(f"    Time: {data['time_sec']}s | CPU: {data['cpu_percent_avg']}%")
-        logger.info(f"    GPU Peak: {data['gpu_util_percent_peak']}% | VRAM Peak: {data['vram_system_peak_mb']} MB")
-        
+        # Speichert jetzt in die Datei im Hauptverzeichnis (Thread-safe genug für Sequential runs)
         self._save_to_file(data)
         return data
 
     def _save_to_file(self, data):
+        # File Locking wäre hier ideal, aber für sequentielle Hydra Runs reicht append meistens.
+        # Bei Multiprocessing (-m mit launcher=joblib) bräuchte man FileLock.
         history = []
         if os.path.exists(self.save_path):
-            with open(self.save_path, 'r') as f:
-                try: history = json.load(f)
-                except: pass
+            try:
+                with open(self.save_path, 'r') as f:
+                    history = json.load(f)
+            except: pass
+        
         history.append(data)
+        
         with open(self.save_path, 'w') as f:
             json.dump(history, f, indent=4)

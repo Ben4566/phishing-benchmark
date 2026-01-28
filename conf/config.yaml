@@ -1,0 +1,21 @@
+# conf/config.yaml
+
+defaults:
+  - _self_
+  - model: cnn   
+  - dataset: url_raw       # Standardmodell, falls nichts angegeben wird
+  # Optional: Dataset später hier hinzufügen
+  # - dataset: ...
+
+# Globale Einstellungen aus run_benchmark.py und train.py
+seed: 42                #
+imbalance_ratio: 1000   #
+output_dir: results     #
+
+# Logging Einstellungen (optional, damit Hydra Logs in 'logs' speichert)
+hydra:
+  run:
+    dir: logs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: logs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${model.name}_seed${seed}

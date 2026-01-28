@@ -1,4 +1,3 @@
-import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,6 +6,8 @@ import random
 import re
 import os
 import sys
+import hydra
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -89,19 +90,22 @@ def enforce_imbalance(X, y, target_ratio=1000):
     logger.info(f"--- [Test Set] Imbalance Applied: {len(benign_indices)} Benign, {len(chosen_phishing)} Phishing ---")
     return X_new, y_new
 
-def run_cnn(file_path, args):
+def run_cnn(cfg: DictConfig):
     logger.info(f"--- Mode: CNN (Raw URLs) | Device: {DEVICE} ---")
+    
+    # WICHTIG: Hydra ändert das Working Directory, daher absolute Pfade erzwingen
+    file_path = hydra.utils.to_absolute_path(cfg.dataset.path)
     urls, labels = load_url_data(file_path)
 
     if len(urls) == 0: 
         logger.error("No URLs loaded. Aborting CNN run.")
         return
 
-    X_train, X_test, y_train, y_test = train_test_split(urls, labels, test_size=0.2, random_state=args.seed)
+    X_train, X_test, y_train, y_test = train_test_split(urls, labels, test_size=0.2, random_state=cfg.seed)
     
-    if args.imbalance_ratio > 0:
-        logger.info(f"Simulating real-world scenario ({args.imbalance_ratio}:1) on TEST DATA...")
-        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=args.imbalance_ratio)
+    if cfg.imbalance_ratio > 0:
+        logger.info(f"Simulating real-world scenario ({cfg.imbalance_ratio}:1) on TEST DATA...")
+        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=cfg.imbalance_ratio)
 
     logger.info("Vectorizing URLs...")
     chars = sorted(list(set("".join(X_train))))
@@ -118,11 +122,11 @@ def run_cnn(file_path, args):
     use_pin_memory = torch.cuda.is_available()
     
     g = torch.Generator()
-    g.manual_seed(args.seed)
+    g.manual_seed(cfg.seed)
 
     train_loader = DataLoader(
         TensorDataset(X_train_enc, y_train_tensor), 
-        batch_size=args.batch_size, 
+        batch_size=cfg.model.params.batch_size, 
         shuffle=True,
         num_workers=num_workers,
         pin_memory=use_pin_memory,
@@ -132,7 +136,7 @@ def run_cnn(file_path, args):
     
     test_loader = DataLoader(
         TensorDataset(X_test_enc, y_test_tensor), 
-        batch_size=args.batch_size,
+        batch_size=cfg.model.params.batch_size,
         num_workers=num_workers,
         pin_memory=use_pin_memory,
         worker_init_fn=seed_worker,
@@ -140,16 +144,16 @@ def run_cnn(file_path, args):
     )
 
     model = CNNModel(vocab_size).to(DEVICE)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=cfg.model.params.lr)
     criterion = nn.BCEWithLogitsLoss() 
     scaler = torch.amp.GradScaler('cuda', enabled=(DEVICE.type == 'cuda'))
     
-    monitor = PerformanceMonitor("CNN", dataset_name=os.path.basename(file_path))
+    monitor = PerformanceMonitor("CNN", dataset_name=cfg.dataset.name)
     
     logger.info("Starting Training (with AMP)...")
     monitor.start_measurement()
     
-    for epoch in range(args.epochs):
+    for epoch in range(cfg.model.params.epochs):
         model.train()
         for X_b, y_b in train_loader:
             X_b, y_b = X_b.to(DEVICE, non_blocking=True), y_b.to(DEVICE, non_blocking=True)
@@ -161,12 +165,13 @@ def run_cnn(file_path, args):
             scaler.step(optimizer)
             scaler.update()
             
-        logger.info(f"Epoch {epoch+1}/{args.epochs} completed.")
+        logger.info(f"Epoch {epoch+1}/{cfg.model.params.epochs} completed.")
     
     monitor.end_measurement(task_name="Training")
 
     if SAFETENSORS_AVAILABLE:
-        model_filename = f"cnn_model_seed{args.seed}.safetensors"
+        model_filename = f"cnn_model_seed{cfg.seed}.safetensors"
+        # Speichern im aktuellen Hydra-Output-Ordner
         save_path = os.path.join("results", model_filename) 
         os.makedirs("results", exist_ok=True)
         save_model(model, save_path)
@@ -192,22 +197,24 @@ def run_cnn(file_path, args):
     metrics = calculate_metrics(np.array(all_labels), y_pred, y_scores)
     monitor.end_measurement(task_name="Inference", extra_metrics=metrics)
 
-def run_svm_tfidf(file_path, args):
+def run_svm_tfidf(cfg: DictConfig):
     logger.info("--- Mode: SVM + TFIDF ---")
+    file_path = hydra.utils.to_absolute_path(cfg.dataset.path)
     urls, labels = load_url_data(file_path)
+    
     text_data = [re.sub(r'\W+', ' ', str(u)) for u in urls]
     
-    X_train, X_test, y_train, y_test = train_test_split(text_data, labels, test_size=0.2, random_state=args.seed)
+    X_train, X_test, y_train, y_test = train_test_split(text_data, labels, test_size=0.2, random_state=cfg.seed)
     
-    if args.imbalance_ratio > 0:
-        logger.info(f"Simulating real-world scenario ({args.imbalance_ratio}:1) on TEST DATA...")
-        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=args.imbalance_ratio)
+    if cfg.imbalance_ratio > 0:
+        logger.info(f"Simulating real-world scenario ({cfg.imbalance_ratio}:1) on TEST DATA...")
+        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=cfg.imbalance_ratio)
     
     vectorizer = TfidfVectorizer()
     X_train_vec = vectorizer.fit_transform(X_train)
     X_test_vec = vectorizer.transform(X_test)
     
-    monitor = PerformanceMonitor("SVM_TFIDF", dataset_name=os.path.basename(file_path))
+    monitor = PerformanceMonitor("SVM_TFIDF", dataset_name=cfg.dataset.name)
     model = get_svm_model()
 
     logger.info("Starting Training...")
@@ -223,33 +230,34 @@ def run_svm_tfidf(file_path, args):
     metrics = calculate_metrics(y_test, y_pred, y_scores)
     monitor.end_measurement(task_name="Inference", extra_metrics=metrics)
 
-def run_numeric_model(model_type, file_path, args):
+def run_numeric_model(model_type, cfg: DictConfig):
     logger.info(f"--- Mode: {model_type.upper()} ---")
+    file_path = hydra.utils.to_absolute_path(cfg.dataset.path)
     X, y = load_and_standardize_data(file_path, "label") 
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=args.seed)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=cfg.seed)
     
     if hasattr(X_train, "values"): X_train = X_train.values
     if hasattr(y_train, "values"): y_train = y_train.values
     if hasattr(X_test, "values"): X_test = X_test.values
     if hasattr(y_test, "values"): y_test = y_test.values
 
-    if args.imbalance_ratio > 0:
-        logger.info(f"Simulating real-world scenario ({args.imbalance_ratio}:1) on TEST DATA...")
-        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=args.imbalance_ratio)
+    if cfg.imbalance_ratio > 0:
+        logger.info(f"Simulating real-world scenario ({cfg.imbalance_ratio}:1) on TEST DATA...")
+        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=cfg.imbalance_ratio)
 
     scaler_data = StandardScaler()
     if model_type == "lr":
         X_train = scaler_data.fit_transform(X_train)
         X_test = scaler_data.transform(X_test)
     
-    monitor = PerformanceMonitor(model_type.upper(), dataset_name=os.path.basename(file_path))
+    monitor = PerformanceMonitor(model_type.upper(), dataset_name=cfg.dataset.name)
     
     if model_type == "lr":
         model = GPULogisticRegression(X_train.shape[1], DEVICE)
-        logger.info(f"Starting Logistic Regression Training (Epochs: {args.epochs})...")
+        logger.info(f"Starting Logistic Regression Training (Epochs: {cfg.model.params.epochs})...")
         monitor.start_measurement()
-        model.fit(X_train, y_train, epochs=args.epochs, lr=args.lr)
+        model.fit(X_train, y_train, epochs=cfg.model.params.epochs, lr=cfg.model.params.lr)
         monitor.end_measurement(task_name="Training")
         
         logger.info("Starting Inference...")
@@ -258,10 +266,11 @@ def run_numeric_model(model_type, file_path, args):
         y_pred = (y_scores > 0.5).astype(int)
         
     elif model_type == "xgb":
-        model = get_xgboost_model(torch.cuda.is_available(), n_estimators=args.epochs, learning_rate=args.lr)
-        logger.info(f"Starting XGBoost Training (Estimators: {args.epochs})...")
+        # Hier nutzen wir 'epochs' aus der Config als 'n_estimators', wie zuvor
+        model = get_xgboost_model(torch.cuda.is_available(), n_estimators=cfg.model.params.epochs, learning_rate=cfg.model.params.lr)
+        logger.info(f"Starting XGBoost Training (Estimators: {cfg.model.params.epochs})...")
         monitor.start_measurement()
-        X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=args.seed)
+        X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=cfg.seed)
         model.fit(X_tr.astype(float), y_tr.astype(float),
                   eval_set=[(X_val.astype(float), y_val.astype(float))], verbose=False)
         monitor.end_measurement(task_name="Training")
@@ -274,29 +283,3 @@ def run_numeric_model(model_type, file_path, args):
 
     metrics = calculate_metrics(y_test, y_pred, y_scores)
     monitor.end_measurement(task_name="Inference", extra_metrics=metrics)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Phishing Detection Benchmark Suite")
-    parser.add_argument("--model", type=str, required=True, choices=["cnn", "lr", "svm", "xgb"], help="Model Architecture")
-    parser.add_argument("--file", type=str, required=True, help="Input Dataset Path")
-    parser.add_argument("--epochs", type=int, default=5, help="Training Epochs / Estimators")
-    parser.add_argument("--batch_size", type=int, default=64, help="Input Batch Size")
-    parser.add_argument("--lr", type=float, default=0.001, help="Learning Rate")
-    parser.add_argument("--seed", type=int, default=42, help="Global Random Seed (Reproducibility)")
-    parser.add_argument("--imbalance_ratio", type=int, default=1000, help="Test Set Prior (Benign:Phishing Ratio)")
-    
-    args = parser.parse_args()
-    
-    seed_everything(args.seed)
-    logger.info(f"--- Config: {args.model.upper()} | Ratio: {args.imbalance_ratio}:1 | File: {args.file} ---")
-
-    if args.model == "xgb":
-        if args.epochs == 5: args.epochs = 100
-        if args.lr == 0.001: args.lr = 0.1
-
-    if args.model == "cnn":
-        run_cnn(args.file, args) 
-    elif args.model == "svm":
-        run_svm_tfidf(args.file, args) 
-    elif args.model in ["lr", "xgb"]:
-        run_numeric_model(args.model, args.file, args)
