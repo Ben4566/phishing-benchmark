@@ -14,19 +14,9 @@ hydra:
     dir: logs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${model.name}_${dataset.name}_seed${seed}
   
-  # --- HIER IST DIE MAGIE ---
   sweeper:
     params:
+      # Hier werden alle Listen definiert, die kombiniert werden sollen
       model: cnn,svm,xgb,lr
       dataset: url_raw,features,phiusiil
       seed: 42,1337,2024
-    
-    # Inkompatible Kombinationen ausschließen
-    exclude:
-      # Regel 1: Numerische Modelle (XGB, LR) brauchen Features, keinen Text (url_raw)
-      - model: xgb,lr
-        dataset: url_raw
-      
-      # Regel 2: Deep Learning / NLP (CNN, SVM) brauchen Text, keine reinen Zahlen-Features
-      - model: cnn,svm
-        dataset: features

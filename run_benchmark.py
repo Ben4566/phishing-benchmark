@@ -1,56 +1,118 @@
 import hydra
-from omegaconf import DictConfig, OmegaConf
 import os
+import re
 import sys
+from omegaconf import DictConfig
+from sklearn.model_selection import train_test_split
 
-# Deine Module importieren
-import src.train as train
+# Eigene Module
+from src.factories import create_model_adapter
+from src.engine import Trainer
+from src.benchmark import PerformanceMonitor
 from src.logger import setup_logger
+from src.data_loader import load_url_data, load_and_standardize_data, encode_urls 
+from src.utils import seed_everything, enforce_imbalance
 
-# Logger setup
-logger = setup_logger("HydraRunner")
+logger = setup_logger("Main")
+
+def validate_config_combination(cfg):
+    """
+    Prüft, ob die Kombination aus Modell und Datensatz gültig ist.
+    Gibt False zurück, wenn der Run übersprungen werden soll.
+    """
+    # Wir holen die echten Namen aus den YAMLs (nicht die Dateinamen)
+    model_name = cfg.model.name.lower()
+    dataset_name = cfg.dataset.name  # z.B. "raw_urls" oder "numeric_features"
+
+    # Regel 1: Numerische Modelle (XGB, LR) brauchen Features, keine Raw URLs
+    if model_name in ["xgb", "lr"] and dataset_name == "raw_urls":
+        logger.warning(f"SKIP: Modell '{model_name}' kann nicht auf '{dataset_name}' trainiert werden.")
+        return False
+    
+    # Regel 2: Text-Modelle (CNN, SVM) brauchen Text, keine rein numerischen Features
+    # Annahme: "numeric_features" ist der Name in features.yaml
+    if model_name in ["cnn", "svm"] and dataset_name == "numeric_features":
+        logger.warning(f"SKIP: Modell '{model_name}' erwartet Text, aber '{dataset_name}' sind Zahlen.")
+        return False
+
+    return True
+
+def prepare_data(cfg):
+    """
+    Lädt Daten, splittet sie, wendet Imbalance an und bereitet Features vor.
+    """
+    path = hydra.utils.to_absolute_path(cfg.dataset.path)
+    
+    # Unterscheidung: Text (CNN, SVM) vs. Numerisch (XGB, LR)
+    is_text_model = cfg.model.name in ["cnn", "svm"]
+    
+    if is_text_model:
+        urls, labels = load_url_data(path)
+        # Split ZUERST
+        X_train, X_test, y_train, y_test = train_test_split(urls, labels, test_size=0.2, random_state=cfg.seed)
+    else:
+        # Numerischer Pfad
+        X, y = load_and_standardize_data(path, "label")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=cfg.seed)
+
+    # Imbalance Handling
+    if cfg.imbalance_ratio > 0:
+        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=cfg.imbalance_ratio)
+
+    # Feature Engineering
+    vocab_size = 0
+    input_dim = 0
+
+    if cfg.model.name == "cnn":
+        chars = sorted(list(set("".join(X_train))))
+        char_to_int = {c: i+2 for i, c in enumerate(chars)}
+        vocab_size = len(char_to_int) + 2
+        
+        X_train = encode_urls(X_train, char_to_int)
+        X_test = encode_urls(X_test, char_to_int)
+        
+    elif cfg.model.name == "svm":
+        X_train = [re.sub(r'\W+', ' ', str(u)) for u in X_train]
+        X_test = [re.sub(r'\W+', ' ', str(u)) for u in X_test]
+        
+    elif not is_text_model:
+        input_dim = X_train.shape[1]
+
+    return X_train, X_test, y_train, y_test, vocab_size, input_dim
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig):
-    """
-    Hydra Entry Point.
-    Jeder Aufruf dieser Funktion entspricht EINEM Experiment.
-    Inkompatible Kombinationen werden jetzt bereits in config.yaml via 'exclude' gefiltert.
-    """
+    # 1. Validierung VOR allem anderen
+    if not validate_config_combination(cfg):
+        return # Beendet diesen Run sauber, Hydra macht mit dem nächsten weiter
+
+    # 2. Reproduzierbarkeit
+    seed_everything(cfg.seed)
     
-    # 1. Logging
-    logger.info(f"--- Starting Run [Model: {cfg.model.name} | Dataset: {cfg.dataset.name}] ---")
-    logger.debug(f"Full Config:\n{OmegaConf.to_yaml(cfg)}")
-
-    # 2. Global Seed setzen
-    train.seed_everything(cfg.seed)
-
-    # 3. Parameter vorbereiten
-    model_name = cfg.model.name
-
-    # 4. Training starten
+    logger.info(f"--- Starte Run: {cfg.model.name} | Dataset: {cfg.dataset.name} | Seed: {cfg.seed} ---")
+    
     try:
-        # Die Checks "if is_text_pure and model_name == xgb..." sind nicht mehr nötig!
+        # 3. Daten laden
+        X_train, X_test, y_train, y_test, vocab_size, input_dim = prepare_data(cfg)
+
+        # 4. Modell erstellen
+        model_adapter = create_model_adapter(cfg, input_dim=input_dim, vocab_size=vocab_size)
         
-        if model_name == "cnn":
-            train.run_cnn(cfg)
-        elif model_name == "svm":
-            train.run_svm_tfidf(cfg)
-        elif model_name in ["lr", "xgb"]:
-            train.run_numeric_model(model_name, cfg)
-        else:
-            logger.error(f"Unknown model architecture in config: {model_name}")
-            
+        # 5. Trainer Setup
+        monitor = PerformanceMonitor(cfg.model.name, cfg.dataset.name)
+        trainer = Trainer(model=model_adapter, monitor=monitor)
+        
+        # 6. Run
+        trainer.run(X_train, y_train, X_test, y_test)
+        
+        # 7. Speichern
+        save_path = os.path.join("results", f"{cfg.model.name}_model.bin")
+        trainer.save_model(save_path)
+        
     except Exception as e:
-        logger.error(f"Pipeline failed for {model_name} on {cfg.dataset.name}: {e}", exc_info=True)
-        raise e
+        logger.error(f"Fehler im Run {cfg.model.name} auf {cfg.dataset.name}: {e}", exc_info=True)
+        # Wir werfen den Fehler nicht weiter, damit Hydra den Multirun nicht komplett abbricht,
+        # sondern nur diesen einen Job als 'Failed' markiert.
 
 if __name__ == "__main__":
-    # AUTOMATISIERUNG:
-    # Wenn keine Argumente übergeben wurden (len=1, da Skriptname selbst arg[0] ist),
-    # starte automatisch den vollen Benchmark (-m).
-    if len(sys.argv) == 1:
-        logger.info("--- Keine Argumente gefunden. Starte automatischen Full-Benchmark (-m) ---")
-        sys.argv.append("-m")
-
     main()

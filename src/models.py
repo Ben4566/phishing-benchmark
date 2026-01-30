@@ -5,7 +5,7 @@ import numpy as np
 import xgboost as xgb
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
-from typing import Any, Union, Optional
+from typing import Any
 
 # --- LOGGING INTEGRATION ---
 from src.logger import setup_logger
@@ -13,7 +13,7 @@ logger = setup_logger(__name__)
 
 # --- 1. CNN Model Architecture ---
 class CNNModel(nn.Module):
-    # ... (Code bleibt identisch)
+    # (Bleibt unverändert)
     def __init__(self, vocab_size: int, embed_dim: int = 32):
         super(CNNModel, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
@@ -37,18 +37,28 @@ class CNNModel(nn.Module):
 
 # --- 2. Custom GPU Logistic Regression ---
 class GPULogisticRegression(nn.Module):
-    # ... (Code bleibt identisch)
-    def __init__(self, input_dim: int, device: torch.device):
+    """
+    Verhält sich wie ein Sklearn-Modell, läuft aber auf GPU (PyTorch).
+    """
+    def __init__(self, input_dim: int, device: torch.device, epochs: int = 100, lr: float = 0.01, batch_size: int = 4096):
         super(GPULogisticRegression, self).__init__()
         self.linear = nn.Linear(input_dim, 1)
         self.device = device
+        
+        # Hyperparameter speichern
+        self.epochs = epochs
+        self.lr = lr
+        self.batch_size = batch_size
+        
         self.to(device)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.sigmoid(self.linear(x))
 
-    def fit(self, X, y, epochs=100, lr=0.01, batch_size=4096):
+    def fit(self, X, y):
         self.train()
+        
+        # Konvertierung
         X_np = X.values if hasattr(X, 'values') else X
         y_np = y.values if hasattr(y, 'values') else y
         
@@ -56,12 +66,13 @@ class GPULogisticRegression(nn.Module):
         y_tensor = torch.tensor(y_np, dtype=torch.float32).view(-1, 1).to(self.device)
         
         criterion = nn.BCELoss()
-        optimizer = optim.Adam(self.parameters(), lr=lr)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
         
         num_samples = X_tensor.shape[0]
+        batch_size = min(self.batch_size, num_samples)
         num_batches = int(np.ceil(num_samples / batch_size))
         
-        for _ in range(epochs):
+        for _ in range(self.epochs):
             indices = torch.randperm(num_samples, device=self.device)
             for i in range(num_batches):
                 start = i * batch_size
@@ -81,9 +92,18 @@ class GPULogisticRegression(nn.Module):
         with torch.no_grad():
             outputs = self.forward(X_tensor)
             probs = outputs.cpu().numpy().flatten()
+        # Sklearn erwartet (N, 2) Output für binary classification
         return np.vstack(((1 - probs), probs)).T
 
-# --- 3. XGBoost Configuration ---
+    # --- DIESE METHODE HAT GEFEHLT ---
+    def predict(self, X) -> np.ndarray:
+        """Gibt harte Labels (0/1) zurück, wie Sklearn es erwartet."""
+        scores = self.predict_proba(X)[:, 1] # Wahrscheinlichkeit für Klasse 1
+        return (scores > 0.5).astype(int)
+    # ---------------------------------
+
+# --- 3. XGBoost & SVM ---
+# (Bleiben unverändert, sind okay)
 def get_xgboost_model(use_cuda: bool, n_estimators: int = 100, learning_rate: float = 0.1) -> xgb.XGBClassifier:
     params = {
         "n_estimators": n_estimators,
@@ -92,13 +112,11 @@ def get_xgboost_model(use_cuda: bool, n_estimators: int = 100, learning_rate: fl
         "objective": "binary:logistic",
         "eval_metric": "logloss",
     }
-
     if use_cuda:
         try:
             params["tree_method"] = "hist" 
             params["device"] = "cuda"
         except Exception:
-            # Fallback Warnung
             logger.warning("XGBoost CUDA init failed. Falling back to CPU histogram.")
             params["tree_method"] = "hist"
     else:
@@ -106,7 +124,6 @@ def get_xgboost_model(use_cuda: bool, n_estimators: int = 100, learning_rate: fl
 
     return xgb.XGBClassifier(**params)
 
-# --- 4. SVM Wrapper ---
 def get_svm_model() -> Any:
     base_model = LinearSVC(dual=False) 
     return CalibratedClassifierCV(base_model)
