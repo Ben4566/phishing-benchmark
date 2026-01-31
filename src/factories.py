@@ -3,25 +3,37 @@ import torch.optim as optim
 import torch.nn as nn
 from omegaconf import DictConfig
 
-# Importiere deine Modelle und Adapter
+# Domain-specific imports
 from src.models import CNNModel, GPULogisticRegression, get_xgboost_model, get_svm_model
 from src.adapters import PyTorchAdapter, SklearnAdapter
 from src.interfaces import IPredictor
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def create_model_adapter(cfg: DictConfig, input_dim: int = 0, vocab_size: int = 0) -> IPredictor:
     """
-    Factory-Methode: Erstellt basierend auf der Config das richtige Modell
-    und verpackt es in den passenden Adapter.
+    Factory Method: Instantiates and configures the appropriate model adapter.
+    
+    Architectural Role:
+    Decouples the configuration logic (Hydra/YAML) from the object instantiation.
+    Ensures that the rest of the application interacts only with the 'IPredictor' interface,
+    unaware of the underlying framework (PyTorch vs Scikit-Learn vs XGBoost).
+    
+    Args:
+        cfg: The configuration node containing model hyperparameters.
+        input_dim: Feature dimensionality (required for Logistic Regression).
+        vocab_size: Vocabulary size (required for CNN embeddings).
+    
+    Returns:
+        IPredictor: A unified interface wrapper around the specific model.
     """
     model_name = cfg.model.name.lower()
 
     if model_name == "cnn":
-        # PyTorch Setup
+        # Deep Learning Path (PyTorch)
         net = CNNModel(vocab_size=vocab_size, embed_dim=32).to(DEVICE)
+        
+        # Optimizer Configuration
         optimizer = optim.Adam(net.parameters(), lr=cfg.model.params.lr)
         criterion = nn.BCEWithLogitsLoss()
         
@@ -36,38 +48,35 @@ def create_model_adapter(cfg: DictConfig, input_dim: int = 0, vocab_size: int = 
         )
 
     elif model_name == "xgb":
-        # XGBoost Setup
+        # Gradient Boosting Path (XGBoost)
         xgb_model = get_xgboost_model(
             use_cuda=torch.cuda.is_available(),
-            n_estimators=cfg.model.params.epochs, # Wir nutzen epochs als n_estimators
+            # Mapping generic 'epochs' config to tree-specific 'n_estimators'
+            n_estimators=cfg.model.params.epochs, 
             learning_rate=cfg.model.params.lr
         )
-        # Injection: Wir sagen dem Adapter, er soll Eval-Sets nutzen
+        # Enable 'use_eval_set' to leverage validation data for early stopping inside the adapter
         return SklearnAdapter(xgb_model, use_eval_set=True)
 
     elif model_name == "svm":
-        # NEU: Wir bauen eine Pipeline aus Vektorisierer + SVM.
-        # Das Modell akzeptiert dann direkt Listen von Strings (URLs).
-        base_svm = get_svm_model() # Liefert CalibratedClassifierCV(LinearSVC)
-        
-        # Pipeline erstellen: Erst TF-IDF, dann SVM
-        model_pipeline = Pipeline([
-            ('tfidf', TfidfVectorizer(max_features=10000)), # Optional: Features begrenzen
-            ('clf', base_svm)
-        ])
-        
-        return SklearnAdapter(model_pipeline)
+        # Support Vector Machine Path (Scikit-Learn)
+        # Architectural Decision: 
+        # The TfidfVectorizer is deliberately excluded here. Vectorization is moved 
+        # to the data loading phase ('run_benchmark.py') to ensure the benchmark 
+        # measures purely the SVM training time, not text preprocessing.
+        base_svm = get_svm_model() 
+        return SklearnAdapter(base_svm)
 
-# Ausschnitt aus src/factories.py
     elif model_name == "lr":
+        # Custom GPU-Accelerated Logistic Regression
         lr_model = GPULogisticRegression(
             input_dim, 
             DEVICE,
-            epochs=cfg.model.params.epochs,  # <--- Jetzt hier übergeben!
+            epochs=cfg.model.params.epochs,
             lr=cfg.model.params.lr,
             batch_size=cfg.model.params.batch_size
         )
         return SklearnAdapter(lr_model)
 
     else:
-        raise ValueError(f"Unknown model: {model_name}")
+        raise ValueError(f"Configuration Error: Unknown model identifier '{model_name}'")

@@ -7,7 +7,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 def seed_everything(seed=42):
-    """Setzt alle Random Seeds für Reproduzierbarkeit."""
+    """
+    Enforces deterministic behavior across all random number generators.
+    Crucial for reproducibility in stochastic machine learning processes.
+    """
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -20,43 +23,51 @@ def seed_everything(seed=42):
 
 def enforce_imbalance(X, y, target_ratio=1000):
     """
-    Simuliert ein Ungleichgewicht in den Daten (z.B. 1:1000).
-    Behält alle negativen Samples (Klasse 0) und reduziert positive Samples (Klasse 1).
+    Simulates real-world data scarcity by undersampling the positive class (Phishing).
+    
+    Args:
+        X: Input features (List of URLs or DataFrame).
+        y: Labels.
+        target_ratio (int): The ratio of Negative:Positive samples (e.g., 1000:1).
+    
+    Returns:
+        tuple: Imbalanced (X_new, y_new) preserving all benign samples.
     """
     y = np.array(y)
     
-    # Indizes finden
+    # Identify class distribution
     benign_indices = np.where(y == 0)[0]
     phishing_indices = np.where(y == 1)[0]
     
     n_benign = len(benign_indices)
-    # Berechnen, wie viele Phishing-Samples wir brauchen für das Verhältnis
+    # Calculate required positive samples to satisfy the ratio
     n_phishing_needed = int(n_benign / target_ratio)
     
+    # Boundary check: Ensure at least one positive sample exists
     if n_phishing_needed < 1: 
         n_phishing_needed = 1
         
-    # Zufällige Auswahl der Phishing Samples
+    # Undersampling Logic: Select random subset of phishing samples
     if len(phishing_indices) < n_phishing_needed:
         chosen_phishing = phishing_indices
     else:
         chosen_phishing = np.random.choice(phishing_indices, n_phishing_needed, replace=False)
         
-    # Zusammenfügen
+    # Aggregate and Shuffle
     keep_indices = np.concatenate([benign_indices, chosen_phishing])
     np.random.shuffle(keep_indices)
     
     y_new = y[keep_indices]
     
-    # Unterscheidung Listen (URLs) vs Numpy/Pandas
+    # Polymorphic handling for List (raw URLs) vs DataFrame (Feature Vectors)
     if isinstance(X, list):
         X_new = [X[i] for i in keep_indices]
     else:
-        # Falls es ein DataFrame ist
+        # Pandas-compatible slicing
         if hasattr(X, 'iloc'):
             X_new = X.iloc[keep_indices]
         else:
             X_new = X[keep_indices]
         
-    logger.info(f"--- Imbalance Applied ({target_ratio}:1): {len(benign_indices)} Benign, {len(chosen_phishing)} Phishing ---")
+    logger.info(f"--- Imbalance Constraints Applied ({target_ratio}:1) | Benign: {len(benign_indices)}, Phishing: {len(chosen_phishing)} ---")
     return X_new, y_new

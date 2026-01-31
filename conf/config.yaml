@@ -4,7 +4,7 @@ defaults:
   - dataset: url_raw    
 
 seed: 42
-imbalance_ratio: 1000
+imbalance_ratio: 100
 output_dir: results
 
 hydra:
@@ -16,7 +16,6 @@ hydra:
   
   sweeper:
     params:
-      # Hier werden alle Listen definiert, die kombiniert werden sollen
       model: cnn,svm,xgb,lr
       dataset: url_raw,features,phiusiil
       seed: 42,1337,2024

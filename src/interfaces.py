@@ -4,8 +4,12 @@ from typing import Optional, Union, Tuple
 
 class IPredictor(ABC):
     """
-    Abstraktes Interface (Contract) für alle ML-Modelle.
-    Dient der Einhaltung des Dependency Inversion Principle (DIP).
+    Abstract Base Class (Interface) representing the Strategy Pattern for ML models.
+    
+    Architectural Role:
+    Enforces the Dependency Inversion Principle (DIP). High-level benchmarking modules
+    depend on this abstraction rather than concrete implementations (e.g., PyTorch vs Sklearn),
+    allowing seamless interchangeability of algorithms.
     """
 
     @abstractmethod
@@ -15,29 +19,39 @@ class IPredictor(ABC):
               X_val: Optional[Union[np.ndarray, object]] = None, 
               y_val: Optional[Union[np.ndarray, object]] = None) -> None:
         """
-        Trainiert das Modell.
+        Executes the training routine.
+        
+        Args:
+            X_train: Training features.
+            y_train: Training labels.
+            X_val (optional): Validation features for early stopping / hyperparameter tuning.
+            y_val (optional): Validation labels.
         """
         pass
 
     @abstractmethod
     def predict(self, X: Union[np.ndarray, object]) -> np.ndarray:
         """
-        Gibt binäre Vorhersagen (0 oder 1) zurück.
-        Shape: (N,)
+        Generates hard class labels (0 or 1).
+        
+        Returns:
+            np.ndarray: Binary predictions with shape (N,).
         """
         pass
 
     @abstractmethod
     def predict_proba(self, X: Union[np.ndarray, object]) -> np.ndarray:
         """
-        Gibt Wahrscheinlichkeiten für die positive Klasse (1) zurück.
-        Shape: (N,) - Achtung: Flattened array von Floats zwischen 0.0 und 1.0.
+        Estimates the probability of the positive class (Phishing).
+        
+        Returns:
+            np.ndarray: Flattened array of floats [0.0, 1.0] with shape (N,).
         """
         pass
     
     @abstractmethod
     def save(self, path: str) -> None:
         """
-        Speichert das Modell persistent.
+        Persists the model state to the filesystem.
         """
         pass
