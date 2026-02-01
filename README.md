@@ -12,6 +12,7 @@ This project adheres to modern Python packaging standards using `pyproject.toml`
 
 ### 1. Clone the repository
 
+```bash
 git clone <repository_url>
 cd <repository_directory>
 
@@ -19,17 +20,20 @@ cd <repository_directory>
 
 ### On Linux / MacOS:
 
+```bash
 python -m venv venv
 source venv/bin/activate
 
 ### On Windows:
+```bash
 python -m venv venv
 .\venv\Scripts\Activate
 
 ### 3. Install dependencies
 
-Install the package in editable mode. This ensures all dependencies (including torch, hydra-core, etc.) are resolved automatically based on the pyproject.toml configuration.
+Install the package in editable mode. This ensures all dependencies (including torch, hydra-core, etc.) are resolved automatically based on the `pyproject.toml` configuration.
 
+```bash
 pip install -e .
 
 Note: For GPU acceleration, ensure that the appropriate CUDA Toolkit version matching your PyTorch installation is available on your system.
@@ -40,35 +44,37 @@ Standard Execution
 
 To run a single benchmark using the default configuration defined in conf/config.yaml:
 
+```bash
 python run_benchmark.py
-
 
 To run the full benchmark using the sweeper configuration defined in conf/config.yaml:
 
+```bash
 python run_benchmark.py -m
 
 ### Results & Analysis
 
-Metric aggregation is handled automatically. Raw performance data is serialized to benchmark_results.json in the root directory.
+Metric aggregation is handled automatically. Raw performance data is serialized to `benchmark_results.json` in the root directory.
 
 To generate comparative reports and visualizations:
 
+```bash
 python analyze_results.py
 
 This script will:
 
-    Parse the accumulated JSON logs.
+Parse the accumulated JSON logs.
 
-    Print a statistical summary to the console (grouping by model type).
+Print a statistical summary to the console (grouping by model type).
 
-    Generate plots in the outputs/ directory, including:
+Generate plots in the outputs/ directory, including:
 
-        Performance vs. Efficiency: Visualizing the trade-off between F1-Score and Inference Time.
+Performance vs. Efficiency: Visualizing the trade-off between F1-Score and Inference Time.
 
-        Resource Utilization: Comparing Peak VRAM and CPU usage across architectures.
+Resource Utilization: Comparing Peak VRAM and CPU usage across architectures.
 
-        A/B Testing: Comparative charts between different dataset sources (e.g., Standard vs. PhiUSIIL) if available.
+A/B Testing: Comparative charts between different dataset sources (e.g., Standard vs. PhiUSIIL) if available.
 
-License
+### License
 
 This project is intended for academic and research purposes.
