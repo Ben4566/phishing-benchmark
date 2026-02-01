@@ -1,0 +1,6 @@
+# Basiert auf MODEL_CONFIG['svm'] aus run_benchmark.py
+name: svm
+params:
+  epochs: 1       # Wird vom SVM-Code ignoriert, ist aber für Konsistenz nötig
+  lr: 0.0         # SVM nutzt keine Learning Rate im SGD-Stil hier
+  batch_size: 0   # Sklearn verarbeitet den ganzen Batch

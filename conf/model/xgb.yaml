@@ -1,0 +1,6 @@
+# Basiert auf MODEL_CONFIG['xgb'] aus run_benchmark.py
+name: xgb
+params:
+  epochs: 100     # Wird in train.py als n_estimators verwendet
+  lr: 0.1         # Learning Rate für XGBoost
+  batch_size: 0   # Nicht verwendet

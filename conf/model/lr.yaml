@@ -1,0 +1,6 @@
+# Basiert auf MODEL_CONFIG['lr'] aus run_benchmark.py
+name: lr
+params:
+  epochs: 50
+  lr: 0.01
+  batch_size: 4096 # Große Batch-Size für GPU-Effizienz

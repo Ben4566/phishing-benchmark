@@ -1,0 +1,21 @@
+defaults:
+  - _self_
+  - model: cnn          
+  - dataset: url_raw    
+
+seed: 42
+imbalance_ratio: 100
+output_dir: results
+
+hydra:
+  run:
+    dir: logs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: logs/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${model.name}_${dataset.name}_seed${seed}
+  
+  sweeper:
+    params:
+      model: cnn,svm,xgb,lr
+      dataset: url_raw,features,phiusiil
+      seed: 42,1337,2024

@@ -1,175 +1,151 @@
-import sys
+import hydra
 import os
-import pandas as pd
-import json
-import numpy as np
-import torch
-from typing import List, Dict, Any
+from omegaconf import DictConfig
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler
 
-# --- IMPORTS ---
-import src.train as train 
-import src.visualize as viz
+# Domain-specific modules
+from src.factories import create_model_adapter
+from src.engine import Trainer
+from src.benchmark import PerformanceMonitor
+from src.logger import setup_logger
+from src.data_loader import load_url_data, load_and_standardize_data, encode_urls 
+from src.utils import seed_everything, enforce_imbalance
 
-# --- CONFIGURATION & CONSTANTS ---
-DATASETS = [
-    "data/raw/combined_urls.csv",                 
-    "data/processed/feature_all.csv",             
-    "data/processed/PhiUSIIL_Phishing_URL_Dataset.csv" 
-]
+logger = setup_logger("Main")
 
-OUTPUT_DIR = "results"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-OUTPUT_CSV = os.path.join(OUTPUT_DIR, "final_benchmark_results.csv")
-BENCHMARK_JSON = "benchmark_results.json"
-
-# --- SENIOR-LEVEL UPDATE: CENTRALIZED HYPERPARAMETER CONFIGURATION ---
-# Senior-Level Comment:
-# We externalize hyperparameters into a structured dictionary acting as a 'Single Source of Truth'.
-# This eliminates 'magic numbers' buried within execution loops and allows for 
-# rapid experimentation (e.g., changing CNN epochs) without risking logic regression in the pipeline.
-MODEL_CONFIG = {
-    "cnn": {
-        "epochs": 1,       # <--- HIER EINFACH ÄNDERN (z.B. von 5 auf 20)
-        "lr": 0.001,
-        "batch_size": 64
-    },
-    "svm": {
-        "epochs": 1,        # SVM in sklearn doesn't iterate epochs the same way, but keeping structure consistent
-        "lr": 0.0,          # Not used for SVM (handled by sklearn internally)
-        "batch_size": 0     # Not used
-    },
-    "xgb": {
-        "epochs": 100,      # Represents n_estimators
-        "lr": 0.1,
-        "batch_size": 0     # Not used
-    },
-    "lr": {
-        "epochs": 50,
-        "lr": 0.01,
-        "batch_size": 4096  # Larger batch size for GPU Logistic Regression
-    }
-}
-
-class ExperimentArgs:
-    def __init__(self, model, file, epochs=5, batch_size=64, lr=0.001, imbalance_ratio=0, seed=42):
-        self.model = model
-        self.file = file
-        self.epochs = epochs
-        self.batch_size = batch_size
-        self.lr = lr
-        self.imbalance_ratio = imbalance_ratio
-        self.seed = seed 
-
-def load_benchmark_history(json_path: str = BENCHMARK_JSON) -> List[Dict]:
-    if not os.path.exists(json_path): return []
-    try:
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except Exception: return []
-
-def run_full_benchmark():
+def validate_config_combination(cfg):
     """
-    Orchestrates the complete ablation study with centralized configuration.
+    Validates architectural compatibility between the selected model and the input dataset.
+    Prevents execution of invalid pairings (e.g., CNNs on tabular features).
+
+    Returns:
+        bool: True if the configuration is valid, False otherwise.
     """
-    results = []
+    # Extract canonical names from configuration (ignoring filenames)
+    model_name = cfg.model.name.lower()
+    dataset_name = cfg.dataset.name  # e.g., "raw_urls" or "numeric_features"
+
+    # Rule 1: Gradient Boosting & Linear Regressors require numerical feature vectors, not raw text strings.
+    if model_name in ["xgb", "lr"] and dataset_name == "raw_urls":
+        logger.warning(f"Configuration Mismatch: Model '{model_name}' cannot process raw text data ('{dataset_name}'). Skipping run.")
+        return False
     
-    # Define the search space
-    models = ["cnn", "svm", "xgb", "lr"] 
-    seeds = [42, 1337, 2024] #, 1337, 2024]  # Reduced for quicker testing
-    ratios = [1000]
+    # Rule 2: Deep Learning text models (CNN) & SVMs imply raw text or sparse inputs, not pre-extracted dense features.
+    if model_name in ["cnn", "svm"] and dataset_name == "numeric_features":
+        logger.warning(f"Configuration Mismatch: Model '{model_name}' expects text input, but dataset '{dataset_name}' contains numerical features. Skipping run.")
+        return False
 
-    print(f"--- STARTING ORCHESTRATION: Benchmark Suite ---")
+    return True
+
+def prepare_data(cfg):
+    """
+    Orchestrates the data pipeline: Ingestion, Splitting, Imbalance Injection, and Preprocessing.
     
-    for dataset in DATASETS:
-        if not os.path.exists(dataset):
-            print(f"[WARNING] Dataset artifact missing: {dataset}. Skipping.")
-            continue
-            
-        dataset_name = os.path.basename(dataset)
-        print(f"\n>>> Context: {dataset_name} <<<")
-
-        # --- MODALITY GUARDRAILS ---
-        is_hybrid  = "PhiUSIIL" in dataset_name      
-        is_numeric = "feature_all" in dataset_name   
-        is_text    = "combined_urls" in dataset_name 
-
-        for model in models:
-            # Check constraints (Text vs Numeric vs Hybrid)
-            if is_text and model in ["xgb", "lr"]: continue 
-            if is_numeric and model in ["cnn", "svm"]: continue 
-            
-            # Senior-Level Comment:
-            # Retrieve model-specific configuration. 
-            # This implements the Strategy Pattern implicitly: the execution logic adapts 
-            # based on the config state rather than hardcoded if-else blocks.
-            config = MODEL_CONFIG.get(model, {"epochs": 5, "lr": 0.001, "batch_size": 64})
-
-            for ratio in ratios:
-                for seed in seeds:
-                    print(f"   -> Executing: {model.upper()} | Prior: {ratio}:1 | Seed: {seed}")
-                    print(f"      [Config] Epochs: {config['epochs']} | LR: {config['lr']}")
-
-                    args = ExperimentArgs(
-                        model=model,
-                        file=dataset,
-                        epochs=config["epochs"],        # Injected from Config
-                        lr=config["lr"],                # Injected from Config
-                        batch_size=config["batch_size"],# Injected from Config
-                        imbalance_ratio=ratio,
-                        seed=seed
-                    )
-                    
-                    history_before = load_benchmark_history()
-                    
-                    try:
-                        # ... (Modell-Training Aufrufe bleiben gleich) ...
-                        if model == "cnn":
-                            train.run_cnn(dataset, args)
-                        elif model == "svm":
-                            train.run_svm_tfidf(dataset, args)
-                        elif model in ["lr", "xgb"]:
-                            train.run_numeric_model(model, dataset, args)
-                        
-                        # --- SENIOR-LEVEL FIX: CAPTURE ALL NEW ENTRIES ---
-                        # Wir berechnen das Delta, um sicherzustellen, dass sowohl 
-                        # 'Training' als auch 'Inference' Einträge erfasst werden.
-                        history_after = load_benchmark_history()
-                        new_items_count = len(history_after) - len(history_before)
-                        
-                        if new_items_count > 0:
-                            # Hole alle neuen Einträge (Slicing von hinten)
-                            new_entries = history_after[-new_items_count:]
-                            
-                            for entry in new_entries:
-                                entry["dataset_name"] = dataset_name
-                                entry["imbalance_ratio"] = ratio
-                                entry["seed"] = seed
-                                results.append(entry)
-                            
-                            print(f"      [SUCCESS] Captured {new_items_count} new result(s) for {model}.")
-                        else:
-                            print(f"      [WARNING] Pipeline finished but no results were persisted for {model}.")
-                            
-                    except Exception as e:
-                        print(f"      [ERROR] Pipeline failed: {e}")
-
-    if results:
-        df = pd.DataFrame(results)
-        df.to_csv(OUTPUT_CSV, index=False)
-        print(f"\n--- Benchmark Complete. Aggregated results saved to {OUTPUT_CSV} ---")
-        return df
+    Returns:
+        tuple: Tuple containing (X_train, X_val, X_test, y_train, y_val, y_test, vocab_size, input_dim)
+    """
+    path = hydra.utils.to_absolute_path(cfg.dataset.path)
+    is_text_model = cfg.model.name in ["cnn", "svm"]
+    
+    # 1. Data Ingestion
+    if is_text_model:
+        X_raw, y_raw = load_url_data(path)
     else:
-        print("No results generated.")
-        return pd.DataFrame()
-  
-if __name__ == "__main__":
-    df_results = run_full_benchmark()
+        X_raw, y_raw = load_and_standardize_data(path, "label")
+
+    # 2. Stratified Partitioning (Train / Validation / Test)
+    # We perform a 3-way split to ensure a dedicated validation set for early stopping.
+    X_temp, X_test, y_temp, y_test = train_test_split(
+        X_raw, y_raw, test_size=0.2, random_state=cfg.seed, stratify=y_raw
+    )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp, y_temp, test_size=0.2, random_state=cfg.seed, stratify=y_temp
+    )
+
+    # 3. Synthetic Anomaly Injection (Test Set Only)
+    # Simulate real-world conditions by enforcing class imbalance in the evaluation set.
+    if cfg.imbalance_ratio > 0:
+        X_test, y_test = enforce_imbalance(X_test, y_test, target_ratio=cfg.imbalance_ratio)
+
+    # 4. Feature Engineering & Preprocessing Pipeline
+    vocab_size = 0
+    input_dim = 0
+
+    if cfg.model.name == "cnn":
+        # Character-level Encoding for Deep Learning
+        import string
+        chars = sorted(list(string.printable))
+        char_to_int = {c: i+2 for i, c in enumerate(chars)}
+        vocab_size = len(char_to_int) + 2
+        
+        X_train = encode_urls(X_train, char_to_int)
+        X_val   = encode_urls(X_val, char_to_int)
+        X_test  = encode_urls(X_test, char_to_int)
+        
+    elif cfg.model.name == "svm":
+        # Sparse Vectorization (TF-IDF)
+        # Note: Vectorizer is fitted ONLY on the training set to prevent data leakage.
+        logger.info("Applying TF-IDF vectorization for SVM...")
+        vec = TfidfVectorizer(max_features=10000)
+        
+        X_train = vec.fit_transform(X_train)
+        X_val   = vec.transform(X_val)
+        X_test  = vec.transform(X_test)
+        
+    elif not is_text_model:
+        # Dense Numerical Features (XGBoost & Logistic Regression)
+        input_dim = X_train.shape[1]
+        
+        # Standardization (Z-Score Normalization)
+        # Strictly required for Logistic Regression; beneficial for SVMs on dense features.
+        if cfg.model.name in ["lr", "svm"]: 
+            logger.info("Standardizing numerical features (Z-Score normalization)...")
+            scaler = StandardScaler()
+            X_train = scaler.fit_transform(X_train)
+            X_val   = scaler.transform(X_val)
+            X_test  = scaler.transform(X_test)
+
+    return X_train, X_val, X_test, y_train, y_val, y_test, vocab_size, input_dim
+
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig):
+    # 1. Pre-flight Configuration Validation
+    if not validate_config_combination(cfg):
+        return 
+
+    seed_everything(cfg.seed)
     
-    if not df_results.empty:
-        print("Generating visualizations...")
-        viz.generate_plots(df_results, OUTPUT_DIR)
-    elif os.path.exists(OUTPUT_CSV):
-         print("Loading existing results for visualization...")
-         df_existing = pd.read_csv(OUTPUT_CSV)
-         viz.generate_plots(df_existing, OUTPUT_DIR)
+    logger.info(f"--- Initiating Benchmark Run: Model={cfg.model.name} | Dataset={cfg.dataset.name} | Seed={cfg.seed} ---")
+    
+    try:
+        # 3. Data Pipeline Execution
+        # Unpacking the complete 3-way split and metadata
+        X_train, X_val, X_test, y_train, y_val, y_test, vocab_size, input_dim = prepare_data(cfg)
+
+        # 4. Model Factory Instantiation
+        model_adapter = create_model_adapter(cfg, input_dim=input_dim, vocab_size=vocab_size)
+        
+        # 5. Training Engine Initialization
+        monitor = PerformanceMonitor(cfg.model.name, cfg.dataset.name)
+        trainer = Trainer(model=model_adapter, monitor=monitor)
+        
+        # 6. Execution Phase (Training & Evaluation)
+        # Validation set is explicitly passed to enable Early Stopping logic.
+        trainer.run(X_train, y_train, X_test, y_test, X_val=X_val, y_val=y_val)
+        
+        # 7. Artifact Persistence
+        orig_cwd = hydra.utils.get_original_cwd()
+        output_dir = os.path.join(orig_cwd, "results", "models")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        save_path = os.path.join(output_dir, f"{cfg.model.name}_{cfg.dataset.name}_{cfg.seed}.bin")
+        trainer.save_model(save_path)
+        logger.info(f"Model artifact successfully saved to: {save_path}")
+        
+    except Exception as e:
+        logger.error(f"Critical failure during execution of {cfg.model.name} on {cfg.dataset.name}: {e}", exc_info=True)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,4 @@
+# Name wird für Logs verwendet
+name: "raw_urls"
+# Relativer Pfad vom Projekt-Root aus
+path: "data/raw/combined_urls.csv"
