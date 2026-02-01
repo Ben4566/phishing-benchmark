@@ -15,20 +15,23 @@ This project adheres to modern Python packaging standards using `pyproject.toml`
 ```bash
 git clone <repository_url>
 cd <repository_directory>
-´´´
+```
 
 ### 2. Set up the environment
 
-### On Linux / MacOS:
+On Linux / MacOS:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
+```
 
 ### On Windows:
+
 ```bash
 python -m venv venv
 .\venv\Scripts\Activate
+```
 
 ### 3. Install dependencies
 
@@ -36,6 +39,7 @@ Install the package in editable mode. This ensures all dependencies (including t
 
 ```bash
 pip install -e .
+```
 
 Note: For GPU acceleration, ensure that the appropriate CUDA Toolkit version matching your PyTorch installation is available on your system.
 
@@ -47,11 +51,13 @@ To run a single benchmark using the default configuration defined in conf/config
 
 ```bash
 python run_benchmark.py
+```
 
 To run the full benchmark using the sweeper configuration defined in conf/config.yaml:
 
 ```bash
 python run_benchmark.py -m
+```
 
 ### Results & Analysis
 
@@ -61,6 +67,7 @@ To generate comparative reports and visualizations:
 
 ```bash
 python analyze_results.py
+```
 
 This script will:
 
