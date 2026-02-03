@@ -27,14 +27,14 @@ cd <https://github.com/Ben4566/phishing-benchmark>
 On Linux / MacOS:
 
 ```bash
-python -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate
 ```
 
 On Windows
 
 ```bash
-python -m venv venv
+py -3.11 -m venv venv
 .\venv\Scripts\Activate
 ```
 

@@ -5,15 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "phishing-benchmark"
 version = "0.1.0"
-description = "High-Performance Phishing Detection Benchmark"
+description = "Phishing Detection Benchmark"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11, <3.12"
 authors = [
-  { name = "Dein Name", email = "deine.email@example.com" },
+  { name = "Benedikt Lang", email = "22labe1bif@hft-stuttgart.de" },
 ]
 
-# Hier sind nur die Pakete, die dein Code wirklich importiert.
-# Versionen basieren auf deiner requirements.txt [cite: 293]
 dependencies = [
     # Core Data Science
     "numpy>=2.3.5",
@@ -47,26 +45,13 @@ dependencies = [
     "omegaconf>=2.3.0",          
 ]
 
-# Optionale Abhängigkeiten (z.B. für Entwicklung/Notebooks)
-[project.optional-dependencies]
-dev = [
-    "jupyterlab>=4.5.2",
-    "notebook>=7.5.2",
-    "ipykernel>=7.1.0"
-]
-
-# --- Tool Konfiguration: Ruff (Linter & Formatter) ---
-# Das Audit empfiehlt Ruff statt Flake8/Black 
 [tool.ruff]
-# Setzt die Zeilenlänge auf 120 (gut für ML-Code)
 line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-# E: Error, F: Pyflakes, I: Import-Sortierung
 select = ["E", "F", "I", "W"]
 ignore = []
 
 [tool.ruff.lint.isort]
-# Damit Python weiß, dass 'src' dein eigenes Modul ist
 known-first-party = ["src"]
