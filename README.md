@@ -1,60 +1,15 @@
-# 🛡️ High-Performance Phishing Detection Benchmark
+# Phishing Detection Benchmark
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red)
 ![Hydra](https://img.shields.io/badge/Config-Hydra-orange)
 ![License](https://img.shields.io/badge/License-Academic-green)
 
-## 📖 Overview
+## Overview
 
 This repository hosts a modular, high-performance machine learning framework designed to evaluate and compare various architectures for **Phishing URL Detection**.
 
 Originally initiated as a group project in the 5th semester, this codebase represents the **benchmarking engine**. It unifies diverse initial implementations (CNN, XGBoost, SVM, LR) into a cohesive, object-oriented framework focusing on **reproducibility**, **hardware efficiency**, and **architectural scalability**.
-
----
-
-## Architecture
-
-The framework is built upon strictly decoupled components to ensure extensibility. The core design relies on the **Dependency Inversion Principle**, where the training engine depends on an abstraction (`IPredictor`) rather than concrete model implementations.
-
-```mermaid
-classDiagram
-    class IPredictor {
-        <<Interface>>
-        +train(X, y)
-        +predict(X)
-        +save(path)
-    }
-    
-    class PyTorchAdapter {
-        -model: nn.Module
-        -optimizer
-        +train()
-        +predict()
-    }
-    
-    class SklearnAdapter {
-        -model: BaseEstimator
-        +train()
-        +predict()
-    }
-
-    class Trainer {
-        +run()
-        -_calculate_metrics()
-    }
-
-    class PerformanceMonitor {
-        +start_measurement()
-        +end_measurement()
-        -_monitor_gpu_usage()
-    }
-
-    IPredictor <|-- PyTorchAdapter : implements
-    IPredictor <|-- SklearnAdapter : implements
-    Trainer --> IPredictor : uses
-    Trainer --> PerformanceMonitor : uses
-```
 
 ## Installation
 
@@ -118,31 +73,6 @@ To generate comparative reports and visualizations:
 ```bash
 python analyze_results.py
 ```
-
-## The pipeline
-
-graph TD
-    A[Config.yaml / Hydra CLI] -->|Parameters| B(Validation Layer)
-    B --> C{Data Loader}
-    C -->|Text Data| D
-    C -->|Tabular Data| E[StandardScaler]
-    D --> F[Stratified Split]
-    E --> F
-    F -->|Injection| G[Imbalance Enforcer]
-    G --> H[Model Factory]
-    H -->|Adapter| I[Training Engine]
-    
-    subgraph "Execution Phase"
-    I --> J[Training Loop]
-    J --> K[Inference]
-    K -.->|Threaded| L[Hardware Monitor]
-    end
-    
-    K --> M[Metrics & Logs]
-    M --> N[JSON Artifacts]
-    N --> O[Visualization Module]
-
-## Archticture of the Benchmark
 
 ## Authorship
 
