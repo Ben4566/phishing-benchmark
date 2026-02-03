@@ -76,15 +76,11 @@ python analyze_results.py
 
 ## Authorship
 
-Benchmark: Benedikt Lang
-
-Intial Notebook implemantion of LR: Moritz Umlaut
-
-Intial Notebook implemantion of XGBoost: Patrick
-
-Intial Notebook implemantion of SVM: Marek Polzer
-
-Intial Notebook implemantion of CNN: Benedikt Lang
+Benchmark: Benedikt Lang  
+Intial Notebook implemantion of LR: Moritz Umlaut  
+Intial Notebook implemantion of XGBoost: Patrick  
+Intial Notebook implemantion of SVM: Marek Polzer  
+Intial Notebook implemantion of CNN: Benedikt Lang  
 
 ### License
 
