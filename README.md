@@ -1,20 +1,70 @@
-# Phishing Detection Benchmarking Framework
+# 🛡️ High-Performance Phishing Detection Benchmark
 
-## Overview
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red)
+![Hydra](https://img.shields.io/badge/Config-Hydra-orange)
+![License](https://img.shields.io/badge/License-Academic-green)
 
-This repository contains a modular machine learning framework designed to evaluate and compare various algorithms for phishing URL detection. Unlike ad-hoc exploratory scripts, this system is engineered to ensure **statistical validity**, **reproducibility**, and **comparability** across different model architectures (Deep Learning vs. Classical ML).
+## 📖 Overview
 
-The framework addresses common pitfalls in academic benchmarking, such as data leakage, non-deterministic execution, and lack of hardware resource profiling. It supports automated hyperparameter sweeps and provides a unified interface for models ranging from PyTorch-based CNNs to GPU-accelerated classical algorithms.
+This repository hosts a modular, high-performance machine learning framework designed to evaluate and compare various architectures for **Phishing URL Detection**.
 
-## Installation
+Originally initiated as a group project in the 5th semester, this codebase represents the **benchmarking engine**. It unifies diverse initial implementations (CNN, XGBoost, SVM, LR) into a cohesive, object-oriented framework focusing on **reproducibility**, **hardware efficiency**, and **architectural scalability**.
 
-This project adheres to modern Python packaging standards using `pyproject.toml`. It is recommended to run the framework within a virtual environment.
+---
+
+## 🏗️ Architecture
+
+The framework is built upon strictly decoupled components to ensure extensibility. The core design relies on the **Dependency Inversion Principle**, where the training engine depends on an abstraction (`IPredictor`) rather than concrete model implementations.
+
+```mermaid
+classDiagram
+    class IPredictor {
+        <<Interface>>
+        +train(X, y)
+        +predict(X)
+        +save(path)
+    }
+    
+    class PyTorchAdapter {
+        -model: nn.Module
+        -optimizer
+        +train()
+        +predict()
+    }
+    
+    class SklearnAdapter {
+        -model: BaseEstimator
+        +train()
+        +predict()
+    }
+
+    class Trainer {
+        +run()
+        -_calculate_metrics()
+    }
+
+    class PerformanceMonitor {
+        +start_measurement()
+        +end_measurement()
+        -_monitor_gpu_usage()
+    }
+
+    IPredictor <|-- PyTorchAdapter : implements
+    IPredictor <|-- SklearnAdapter : implements
+    Trainer --> IPredictor : uses
+    Trainer --> PerformanceMonitor : uses
+
+
+### Installation
+
+It is recommended to run the framework within a virtual environment.
 
 ### 1. Clone the repository
 
 ```bash
-git clone <repository_url>
-cd <repository_directory>
+git clone <https://github.com/Ben4566/phishing-benchmark>
+cd <https://github.com/Ben4566/phishing-benchmark>
 ```
 
 ### 2. Set up the environment
@@ -26,7 +76,7 @@ python -m venv venv
 source venv/bin/activate
 ```
 
-### On Windows:
+On Windows
 
 ```bash
 python -m venv venv
@@ -61,7 +111,7 @@ python run_benchmark.py -m
 
 ### Results & Analysis
 
-Metric aggregation is handled automatically. Raw performance data is serialized to `benchmark_results.json` in the root directory.
+Raw performance data is serialized to `benchmark_results.json` in the root directory.
 
 To generate comparative reports and visualizations:
 
@@ -69,19 +119,17 @@ To generate comparative reports and visualizations:
 python analyze_results.py
 ```
 
-This script will:
+## The pipeline
 
-Parse the accumulated JSON logs.
+## Archticture of the Benchmark
 
-Print a statistical summary to the console (grouping by model type).
+## Authorship
 
-Generate plots in the outputs/ directory, including:
-
-Performance vs. Efficiency: Visualizing the trade-off between F1-Score and Inference Time.
-
-Resource Utilization: Comparing Peak VRAM and CPU usage across architectures.
-
-A/B Testing: Comparative charts between different dataset sources (e.g., Standard vs. PhiUSIIL) if available.
+Benchmark: Benedikt Lang
+Intial Notebook implemantion of LR: Moritz Umlaut
+Intial Notebook implemantion of XGBoost: Patrick
+Intial Notebook implemantion of SVM: Marek Polzer
+Intial Notebook implemantion of CNN: Benedikt Lang
 
 ### License
 
