@@ -13,7 +13,7 @@ Originally initiated as a group project in the 5th semester, this codebase repre
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 The framework is built upon strictly decoupled components to ensure extensibility. The core design relies on the **Dependency Inversion Principle**, where the training engine depends on an abstraction (`IPredictor`) rather than concrete model implementations.
 
@@ -54,13 +54,13 @@ classDiagram
     IPredictor <|-- SklearnAdapter : implements
     Trainer --> IPredictor : uses
     Trainer --> PerformanceMonitor : uses
+```
 
-
-### Installation
+## Installation
 
 It is recommended to run the framework within a virtual environment.
 
-### 1. Clone the repository
+## 1. Clone the repository
 
 ```bash
 git clone <https://github.com/Ben4566/phishing-benchmark>
@@ -120,6 +120,27 @@ python analyze_results.py
 ```
 
 ## The pipeline
+
+graph TD
+    A[Config.yaml / Hydra CLI] -->|Parameters| B(Validation Layer)
+    B --> C{Data Loader}
+    C -->|Text Data| D
+    C -->|Tabular Data| E[StandardScaler]
+    D --> F[Stratified Split]
+    E --> F
+    F -->|Injection| G[Imbalance Enforcer]
+    G --> H[Model Factory]
+    H -->|Adapter| I[Training Engine]
+    
+    subgraph "Execution Phase"
+    I --> J[Training Loop]
+    J --> K[Inference]
+    K -.->|Threaded| L[Hardware Monitor]
+    end
+    
+    K --> M[Metrics & Logs]
+    M --> N[JSON Artifacts]
+    N --> O[Visualization Module]
 
 ## Archticture of the Benchmark
 
